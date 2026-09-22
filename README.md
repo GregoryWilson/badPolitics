@@ -219,6 +219,25 @@ Evidence packets are reproducible bundles of source-backed records and determini
 
 Bill-level fiscal context is labeled as bill-level and must not be attributed to a specific section merely because it appears in that section's packet.
 
+## MVP-16
+- persisted provision-level investigation queue
+- packet-driven trigger tags without political quality scoring
+- evidence coverage checklist and explicit provenance gaps
+- analyst workflow states: new, reviewing, needs evidence, completed, archived
+- superseded historical queue records when packet evidence changes
+- analyst notes stored separately from evidence packets
+- bill-level queue sync API and global queue list/summary APIs
+- changed watched bills automatically attempt queue refresh
+- queue refresh failures are recorded without failing legislative monitoring
+- global dashboard Investigation Queue with status filtering
+- bill-level Triage tab with editable status and analyst notes
+
+### Investigation-queue semantics
+
+The queue is an analyst workflow surface, not a political ranking system. Queue position, trigger count, evidence coverage, evidence gaps, and workflow status describe what information is available and what review work remains. They do not state that a bill, provision, sponsor, amendment, or external relationship is good, bad, improper, corrupt, or more important than another.
+
+A changed evidence packet creates a new queue record and active older records are marked `superseded` rather than overwritten, preserving the analyst audit trail.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -247,6 +266,10 @@ POST /bills/{bill_id}/evidence-packets
 GET  /bills/{bill_id}/evidence-packets
 POST /sections/{section_id}/evidence-packet
 GET  /evidence-packets/{packet_id}
+POST /bills/{bill_id}/queue/sync
+GET  /investigation-queue
+GET  /investigation-queue/summary
+PATCH /investigation-queue/{item_id}
 GET  /bills/{bill_id}/timeline
 GET  /bills/{bill_id}/findings
 GET  /bills/{bill_id}/diff/latest

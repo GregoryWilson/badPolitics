@@ -25,13 +25,15 @@ from app.services.fiscal_analysis import run_fiscal_analysis,fiscal_analysis_res
 from app.services.lineage import build_lineage,lineage_result
 from app.services.scope_analysis import run_scope_analysis,scope_analysis_result
 from app.services.evidence_packets import build_bill_packets,build_section_packet,get_packet,list_packets
+from app.schemas.queue import QueueItemUpdate
+from app.services.investigation_queue import sync_bill_queue,list_queue,queue_summary,update_queue_item
 from app.schemas.watch import WatchCreate,WatchUpdate
 from app.services.watch import run_watch,run_active_watches,list_events,get_scan
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="1.6.0")
+app=FastAPI(title="LegisWatch",version="1.7.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -40,7 +42,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"1.6.0","watch_poll_minutes":settings.watch_poll_minutes}
+def health(): return {"ok":True,"version":"1.7.0","watch_poll_minutes":settings.watch_poll_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -395,6 +397,42 @@ def evidence_packet_get(packet_id:int,db:Session=Depends(get_db)):
         return get_packet(db,packet_id)
     except ValueError as e:
         raise HTTPException(404,str(e))
+
+@app.post("/bills/{bill_id}/queue/sync")
+def queue_sync_bill(bill_id:int,limit:int=50,prepare:bool=True,db:Session=Depends(get_db)):
+    try:
+        return sync_bill_queue(db,bill_id,limit=limit,prepare=prepare)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,f"Queue sync failed: {e}")
+
+@app.get("/investigation-queue")
+def investigation_queue_list(
+    status:str|None=None,
+    jurisdiction:str|None=None,
+    bill_id:int|None=None,
+    limit:int=100,
+    db:Session=Depends(get_db),
+):
+    return list_queue(
+        db,status=status,jurisdiction=jurisdiction,bill_id=bill_id,limit=limit
+    )
+
+@app.get("/investigation-queue/summary")
+def investigation_queue_summary(db:Session=Depends(get_db)):
+    return queue_summary(db)
+
+@app.patch("/investigation-queue/{item_id}")
+def investigation_queue_update(
+    item_id:int,payload:QueueItemUpdate,db:Session=Depends(get_db)
+):
+    try:
+        return update_queue_item(
+            db,item_id,status=payload.status,analyst_notes=payload.analyst_notes
+        )
+    except ValueError as e:
+        raise HTTPException(400,str(e))
 
 @app.post("/bills/{bill_id}/reports")
 def report_create(bill_id:int,research_run_id:int|None=None,db:Session=Depends(get_db)):

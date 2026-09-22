@@ -81,3 +81,15 @@ def test_dashboard_supports_evidence_packets_and_opt_in_synthesis():
     assert '/evidence-packets?generate_narrative=false' in js
     assert 'generate_narrative=true' in js
     assert "Generate Local Synthesis" in js
+
+
+def test_dashboard_supports_investigation_queue_and_triage():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'id="queueList"' in html
+    assert 'id="queueStatusFilter"' in html
+    assert 'data-tab="triage"' in html
+    assert 'id="triage"' in html
+    assert '/investigation-queue/summary' in js
+    assert '/queue/sync?limit=50&prepare=false' in js
+    assert "analyst workflow metadata" in js.lower()

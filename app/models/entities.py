@@ -330,3 +330,22 @@ class ProvisionEvidencePacket(Base):
     llm_model:Mapped[str|None]=mapped_column(String(128),nullable=True)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     __table_args__=(UniqueConstraint("bill_id","version_id","section_id","packet_hash"),)
+
+
+class InvestigationQueueItem(Base):
+    __tablename__="investigation_queue_items"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    version_id:Mapped[int]=mapped_column(ForeignKey("bill_versions.id",ondelete="CASCADE"))
+    section_id:Mapped[int]=mapped_column(ForeignKey("sections.id",ondelete="CASCADE"))
+    packet_id:Mapped[int]=mapped_column(ForeignKey("provision_evidence_packets.id",ondelete="CASCADE"))
+    packet_hash:Mapped[str]=mapped_column(String(64))
+    status:Mapped[str]=mapped_column(String(32),default="new")
+    trigger_types:Mapped[list]=mapped_column(JSON,default=list)
+    evidence_coverage:Mapped[dict]=mapped_column(JSON,default=dict)
+    unresolved_gaps:Mapped[list]=mapped_column(JSON,default=list)
+    analyst_notes:Mapped[str|None]=mapped_column(Text,nullable=True)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    last_seen_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(UniqueConstraint("bill_id","version_id","section_id","packet_hash"),)

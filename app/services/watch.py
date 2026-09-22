@@ -8,6 +8,7 @@ from app.services.ingest import ingest_federal, ingest_jurisdiction, discover_ju
 from app.services.monitor import poll_recent_bills
 from app.services.research import run_bill_research
 from app.services.reporting import build_report
+from app.services.investigation_queue import sync_bill_queue
 
 def _bill_key(congress,bill_type,bill_number,jurisdiction="US"):
     return f"{jurisdiction.upper()}:{congress}:{bill_type.lower()}:{bill_number}"
@@ -101,6 +102,11 @@ def _refresh_outputs(db,watch,bill,events):
         research=run_bill_research(db,bill.id)
         result["research_run_id"]=research["run"]["id"]
         result["research_status"]=research["run"]["status"]
+    try:
+        queue=sync_bill_queue(db,bill.id,limit=50)
+        result["queue_synced_count"]=queue["synced_count"]
+    except Exception as exc:
+        result["queue_error"]=str(exc)
     if watch.auto_report:
         report=build_report(db,bill.id,result.get("research_run_id"))
         result["report_id"]=report["report_id"]
@@ -146,6 +152,7 @@ def scan_session_watch(db,watch,scan):
     events=[]
     refreshed={}
     for ingest_result in result.get("ingested",[]):
+        bill_events=[]
         bill_id=ingest_result.get("bill_id")
         if not bill_id:
             continue
@@ -159,7 +166,8 @@ def scan_session_watch(db,watch,scan):
                 f"Newly monitored bill: {bill.bill_type.upper()} {bill.bill_number}",
                 {"title":bill.title,"session":session},
             )
-            if row: events.append(row)
+            if row:
+                events.append(row); bill_events.append(row)
         created_versions=ingest_result.get("created_versions") or []
         created_actions=ingest_result.get("created_actions") or []
         documents=ingest_result.get("documents") or []
@@ -170,7 +178,8 @@ def scan_session_watch(db,watch,scan):
                 f"New bill text version detected for {bill.bill_type.upper()} {bill.bill_number}",
                 version,
             )
-            if row: events.append(row)
+            if row:
+                events.append(row); bill_events.append(row)
         for action in created_actions:
             key=f'{action.get("date")}|{action.get("text")}'
             row=_emit(
@@ -178,7 +187,8 @@ def scan_session_watch(db,watch,scan):
                 f"New legislative action for {bill.bill_type.upper()} {bill.bill_number}",
                 action,
             )
-            if row: events.append(row)
+            if row:
+                events.append(row); bill_events.append(row)
         for document in documents:
             key=f'{document.get("document_type")}:{document.get("source_url")}'
             row=_emit(
@@ -186,9 +196,10 @@ def scan_session_watch(db,watch,scan):
                 f'New {str(document.get("document_type") or "supporting document").replace("_"," ")} for {bill.bill_type.upper()} {bill.bill_number}',
                 document,
             )
-            if row: events.append(row)
-        if (created_versions or created_actions or documents) and (watch.auto_research or watch.auto_report):
-            refreshed[str(bill.id)]=_refresh_outputs(db,watch,bill,events)
+            if row:
+                events.append(row); bill_events.append(row)
+        if bill_events:
+            refreshed[str(bill.id)]=_refresh_outputs(db,watch,bill,bill_events)
     return {
         "discovered_count":len(result.get("bills",[])),
         "ingested_count":len(result.get("ingested",[])),
@@ -225,7 +236,7 @@ def scan_congress_watch(db,watch,scan):
         else:
             bill_events=_diff_events(db,watch,scan,bill,before[bill.id],after)
             events.extend(bill_events)
-        if bill_events and (watch.auto_research or watch.auto_report):
+        if bill_events:
             refreshed[str(bill.id)]=_refresh_outputs(db,watch,bill,bill_events)
     return {
         "poll_result_count":len(results),
