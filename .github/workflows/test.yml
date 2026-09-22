@@ -16,4 +16,7 @@ jobs:
           cache: pip
       - run: python -m pip install --upgrade pip
       - run: pip install -e ".[dev]"
+      - run: DATABASE_URL=sqlite:////tmp/legiswatch-ci.db alembic upgrade head
+      - run: DATABASE_URL=sqlite:////tmp/legiswatch-ci.db alembic check
+      - run: DATABASE_URL=sqlite:////tmp/legiswatch-ci.db python -m app.db.migrate check
       - run: pytest -q

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, JSON, UniqueConstraint, Float
+from sqlalchemy import String, Integer, Text, DateTime, ForeignKey, JSON, UniqueConstraint, Float, Index
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -48,7 +48,7 @@ class BillAction(Base):
     source_url:Mapped[str|None]=mapped_column(Text,nullable=True)
     raw_json:Mapped[dict]=mapped_column(JSON,default=dict)
     bill=relationship("Bill",back_populates="actions")
-    __table_args__=(UniqueConstraint("bill_id","action_date","text"),)
+    __table_args__=(UniqueConstraint("bill_id","action_date","text"),Index("ix_bill_actions_bill_date","bill_id","action_date"),)
 
 class BillSponsor(Base):
     __tablename__="bill_sponsors"
@@ -87,6 +87,7 @@ class Section(Base):
     text:Mapped[str]=mapped_column(Text)
     ordinal:Mapped[int]=mapped_column(Integer)
     version=relationship("BillVersion",back_populates="sections")
+    __table_args__=(Index("ix_sections_version_number","version_id","section_number"),)
 
 class Finding(Base):
     __tablename__="findings"
@@ -99,6 +100,7 @@ class Finding(Base):
     evidence:Mapped[str]=mapped_column(Text)
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
     version=relationship("BillVersion",back_populates="findings")
+    __table_args__=(Index("ix_findings_version_section","version_id","section_id"),)
 
 
 class EvidenceEntity(Base):
@@ -123,7 +125,11 @@ class LegislativeEntityLink(Base):
     confidence:Mapped[float]=mapped_column(Float,default=1.0)
     extraction_method:Mapped[str]=mapped_column(String(64),default="deterministic")
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
-    __table_args__=(UniqueConstraint("bill_id","section_id","entity_id","link_type"),)
+    __table_args__=(
+        UniqueConstraint("bill_id","section_id","entity_id","link_type"),
+        Index("ix_legislative_links_bill_section","bill_id","section_id"),
+        Index("ix_legislative_links_entity","entity_id"),
+    )
 
 class EntityRelationship(Base):
     __tablename__="entity_relationships"
@@ -137,7 +143,11 @@ class EntityRelationship(Base):
     confidence:Mapped[float]=mapped_column(Float,default=1.0)
     source_system:Mapped[str]=mapped_column(String(64),default="manual")
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
-    __table_args__=(UniqueConstraint("source_entity_id","target_entity_id","relation_type","source_url"),)
+    __table_args__=(
+        UniqueConstraint("source_entity_id","target_entity_id","relation_type","source_url"),
+        Index("ix_relationships_source","source_entity_id"),
+        Index("ix_relationships_target","target_entity_id"),
+    )
 
 
 class ExternalEvidenceRecord(Base):
@@ -150,7 +160,10 @@ class ExternalEvidenceRecord(Base):
     source_url:Mapped[str|None]=mapped_column(Text,nullable=True)
     raw_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
-    __table_args__=(UniqueConstraint("source_system","record_type","external_id"),)
+    __table_args__=(
+        UniqueConstraint("source_system","record_type","external_id"),
+        Index("ix_external_evidence_source_type_observed","source_system","record_type","observed_on"),
+    )
 
 
 class CorrelationFinding(Base):
@@ -286,7 +299,10 @@ class ProvisionLineage(Base):
     diff_text:Mapped[str|None]=mapped_column(Text,nullable=True)
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
-    __table_args__=(UniqueConstraint("bill_id","section_number","from_version_id","to_version_id","event_type"),)
+    __table_args__=(
+        UniqueConstraint("bill_id","section_number","from_version_id","to_version_id","event_type"),
+        Index("ix_lineage_bill_to_version","bill_id","to_version_id"),
+    )
 
 class AmendmentAttribution(Base):
     __tablename__="amendment_attributions"
@@ -348,4 +364,8 @@ class InvestigationQueueItem(Base):
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     last_seen_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
-    __table_args__=(UniqueConstraint("bill_id","version_id","section_id","packet_hash"),)
+    __table_args__=(
+        UniqueConstraint("bill_id","version_id","section_id","packet_hash"),
+        Index("ix_queue_status_updated","status","updated_at"),
+        Index("ix_queue_bill_status_updated","bill_id","status","updated_at"),
+    )

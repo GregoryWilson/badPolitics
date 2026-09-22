@@ -12,7 +12,8 @@ dependencies = [
   "httpx>=0.28",
   "beautifulsoup4>=4.12",
   "lxml>=5.3",
-  "python-multipart>=0.0.20"
+  "python-multipart>=0.0.20",
+  "alembic>=1.14"
 ]
 
 [project.optional-dependencies]
@@ -20,3 +21,7 @@ dev = ["pytest>=8.3", "ruff>=0.9"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+exclude = ["migrations*"]
