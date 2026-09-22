@@ -170,3 +170,35 @@ def relationships_for_bill(db, bill_id: int):
         "source_system": r.source_system,
         "metadata": r.metadata_json,
     } for r in rels]
+
+
+def create_relationship(db, source_entity_id: int, target_entity_id: int, relation_type: str,
+                        evidence: str, source_url: str | None = None, observed_on: str | None = None,
+                        confidence: float = 1.0, source_system: str = "manual", metadata=None):
+    source = db.get(EvidenceEntity, source_entity_id)
+    target = db.get(EvidenceEntity, target_entity_id)
+    if not source or not target:
+        raise ValueError("Source or target entity not found")
+    existing = db.scalar(select(EntityRelationship).where(
+        EntityRelationship.source_entity_id == source_entity_id,
+        EntityRelationship.target_entity_id == target_entity_id,
+        EntityRelationship.relation_type == relation_type,
+        EntityRelationship.source_url == source_url,
+    ))
+    if existing:
+        return existing
+    relation = EntityRelationship(
+        source_entity_id=source_entity_id,
+        target_entity_id=target_entity_id,
+        relation_type=relation_type,
+        evidence=evidence,
+        source_url=source_url,
+        observed_on=observed_on,
+        confidence=confidence,
+        source_system=source_system,
+        metadata_json=metadata or {},
+    )
+    db.add(relation)
+    db.commit()
+    db.refresh(relation)
+    return relation
