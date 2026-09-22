@@ -98,15 +98,15 @@ def _refresh_outputs(db,watch,bill,events):
     result={}
     if not events:
         return result
+    if watch.auto_research:
+        research=run_bill_research(db,bill.id)
+        result["research_run_id"]=research["run"]["id"]
+        result["research_status"]=research["run"]["status"]
     try:
         queue=sync_bill_queue(db,bill.id,limit=50)
         result["queue_synced_count"]=queue["synced_count"]
     except Exception as exc:
         result["queue_error"]=str(exc)
-    if watch.auto_research:
-        research=run_bill_research(db,bill.id)
-        result["research_run_id"]=research["run"]["id"]
-        result["research_status"]=research["run"]["status"]
     if watch.auto_report:
         report=build_report(db,bill.id,result.get("research_run_id"))
         result["report_id"]=report["report_id"]
