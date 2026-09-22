@@ -1,4 +1,4 @@
-const state={bills:[],selected:null,report:null,watches:[],events:[]};
+const state={bills:[],selected:null,report:null,watches:[],events:[],queue:[],queueSummary:null};
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -26,6 +26,73 @@ const api=async(url,opts={})=>{
 };
 const status=(msg,cls="")=>{$("statusLine").className="status-line "+cls;$("statusLine").textContent=msg||""};
 
+async function loadQueueData(){
+  try{
+    const filter=$("queueStatusFilter")?.value||"";
+    const query=filter?"?status="+encodeURIComponent(filter)+"&limit=100":"?limit=100";
+    const result=await Promise.all([api("/investigation-queue"+query),api("/investigation-queue/summary")]);
+    state.queue=result[0]; state.queueSummary=result[1];
+    renderQueue();
+  }catch(e){
+    if($("queueList"))$("queueList").innerHTML="<div class=\"notice\">Unable to load investigation queue.</div>";
+  }
+}
+function renderQueue(){
+  if(!$("queueList"))return;
+  const rows=state.queue||[];
+  const summary=state.queueSummary||{by_status:{}};
+  const statusBits=Object.entries(summary.by_status||{}).filter(([,count])=>count).map(([name,count])=>esc(name.replaceAll("_"," "))+": "+esc(count)).join(" · ");
+  $("queueSummary").innerHTML=statusBits||"No queue items yet.";
+  $("queueList").innerHTML=rows.length?rows.map(item=>
+    "<div class=\"queue-item\" data-queue-bill-id=\""+esc(item.bill?.id||"")+"\">"+
+    "<div class=\"queue-item-title\">"+esc(item.bill?.bill_type?.toUpperCase()||"")+" "+esc(item.bill?.bill_number||"")+" · §"+esc(item.section?.number||"")+"</div>"+
+    "<div class=\"meta\"><span class=\"badge\">"+esc(item.status.replaceAll("_"," "))+"</span><span>"+esc(item.bill?.jurisdiction||"")+"</span></div>"+
+    "<div class=\"queue-tags\">"+(item.trigger_types||[]).slice(0,4).map(t=>"<span class=\"badge\">"+esc(t.replaceAll("_"," "))+"</span>").join("")+"</div>"+
+    ((item.unresolved_gaps||[]).length?"<div class=\"queue-gap\">"+esc(item.unresolved_gaps.length)+" evidence gap(s)</div>":"")+
+    "</div>"
+  ).join(""):"<div class=\"notice\">No queue items match this filter.</div>";
+  document.querySelectorAll(".queue-item[data-queue-bill-id]").forEach(el=>{
+    const billId=Number(el.dataset.queueBillId);
+    if(billId)el.onclick=async()=>{await selectBill(billId);activateTab("triage")};
+  });
+}
+async function loadBillQueue(){
+  if(!state.selected)return;
+  try{
+    const rows=await api("/investigation-queue?bill_id="+state.selected.id+"&limit=100");
+    renderBillQueue(rows);
+  }catch(e){$("triage").innerHTML="<div class=\"notice\">Unable to load triage workflow.</div>";}
+}
+function renderBillQueue(rows){
+  const options=["new","reviewing","needs_evidence","completed","archived"];
+  $("triage").innerHTML="<div class=\"notice\">Triage status and notes are analyst workflow metadata. They do not change the evidence packet or imply a political judgment.</div>"+
+    (rows.length?rows.map(item=>{
+      const disabled=item.status==="superseded"?" disabled":"";
+      const opts=options.map(s=>"<option value=\""+s+"\" "+(item.status===s?"selected":"")+">"+esc(s.replaceAll("_"," "))+"</option>").join("");
+      const tags=(item.trigger_types||[]).map(t=>"<span class=\"badge\">"+esc(t.replaceAll("_"," "))+"</span>").join("");
+      const gaps=(item.unresolved_gaps||[]).length?"<div class=\"notice\">Evidence gaps: "+esc(item.unresolved_gaps.join(", ").replaceAll("_"," "))+"</div>":"";
+      return "<article class=\"card\"><h3>Section "+esc(item.section?.number||"")+" · "+esc(item.status.replaceAll("_"," "))+"</h3>"+
+        "<div class=\"meta\"><span>Packet "+esc(item.packet?.id||"")+"</span><span>"+esc((item.trigger_types||[]).length)+" trigger type(s)</span><span>"+esc((item.unresolved_gaps||[]).length)+" evidence gap(s)</span><span>Next: "+esc((item.suggested_next_step||"").replaceAll("_"," "))+"</span></div>"+
+        "<div class=\"queue-tags\">"+tags+"</div>"+gaps+
+        "<div class=\"triage-controls\"><select class=\"triage-status\" data-queue-id=\""+esc(item.id)+"\""+disabled+">"+opts+"</select>"+
+        "<textarea class=\"triage-notes\" data-queue-id=\""+esc(item.id)+"\" placeholder=\"Analyst notes\""+disabled+">"+esc(item.analyst_notes||"")+"</textarea>"+
+        "<button class=\"triage-save\" data-queue-id=\""+esc(item.id)+"\""+disabled+">Save</button></div></article>";
+    }).join(""):"<div class=\"notice\">No investigation queue items exist for this bill yet.</div>");
+  document.querySelectorAll(".triage-save").forEach(button=>{
+    button.onclick=async()=>{
+      const id=Number(button.dataset.queueId);
+      const statusEl=document.querySelector(".triage-status[data-queue-id=\""+id+"\"]");
+      const notesEl=document.querySelector(".triage-notes[data-queue-id=\""+id+"\"]");
+      button.disabled=true;
+      try{
+        await api("/investigation-queue/"+id,{method:"PATCH",body:JSON.stringify({status:statusEl.value,analyst_notes:notesEl.value})});
+        await Promise.all([loadBillQueue(),loadQueueData()]);
+        status("Triage item updated.","success");
+      }catch(e){status("Unable to update triage item: "+e.message,"error")}
+      finally{button.disabled=false}
+    };
+  });
+}
 async function loadWatchData(){
   try{
     const [watches,events]=await Promise.all([api("/watches"),api("/watch-events?limit=30")]);
