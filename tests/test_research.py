@@ -16,3 +16,8 @@ def test_research_can_disable_sources():
     req=ResearchRunRequest(include_fec_candidate_links=False,include_lda_clients=False)
     assert req.include_fec_candidate_links is False
     assert req.include_lda_clients is False
+
+
+def test_filing_year_is_optional():
+    req=ResearchRunRequest(filing_year=2026)
+    assert req.filing_year == 2026
