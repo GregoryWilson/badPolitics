@@ -9,13 +9,13 @@ from app.services.monitor import poll_recent_bills
 from app.services.diffing import summary,unified
 from app.services.llm import deep_dive
 from app.services.graph import sync_bill_graph,graph_for_bill,relationships_for_bill,create_relationship,get_or_create_entity
-from app.schemas.graph import EntityCreate,RelationshipCreate
+from app.schemas.graph import EntityCreate,RelationshipCreate\nfrom app.services.metrics import bill_metrics
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.3.0")
+app=FastAPI(title="LegisWatch",version="0.4.0")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.3.0"}
+def health(): return {"ok":True,"version":"0.4.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -134,3 +134,11 @@ def entity_get(entity_id:int,db:Session=Depends(get_db)):
         "external_ids":entity.external_ids,
         "metadata":entity.metadata_json,
     }
+
+
+@app.get("/bills/{bill_id}/metrics")
+def metrics_get(bill_id:int,db:Session=Depends(get_db)):
+    try:
+        return bill_metrics(db,bill_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
