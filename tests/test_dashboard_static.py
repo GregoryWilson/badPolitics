@@ -71,3 +71,13 @@ def test_dashboard_supports_scope_review():
     assert 'id="scope"' in html
     assert '/scope-analysis' in js
     assert "Scope Review" in html
+
+
+def test_dashboard_supports_evidence_packets_and_opt_in_synthesis():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'data-tab="packets"' in html
+    assert 'id="packets"' in html
+    assert '/evidence-packets?generate_narrative=false' in js
+    assert 'generate_narrative=true' in js
+    assert "Generate Local Synthesis" in js

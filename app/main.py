@@ -24,13 +24,14 @@ from app.services.reporting import build_report,get_report
 from app.services.fiscal_analysis import run_fiscal_analysis,fiscal_analysis_result
 from app.services.lineage import build_lineage,lineage_result
 from app.services.scope_analysis import run_scope_analysis,scope_analysis_result
+from app.services.evidence_packets import build_bill_packets,build_section_packet,get_packet,list_packets
 from app.schemas.watch import WatchCreate,WatchUpdate
 from app.services.watch import run_watch,run_active_watches,list_events,get_scan
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="1.5.0")
+app=FastAPI(title="LegisWatch",version="1.6.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -39,7 +40,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"1.5.0","watch_poll_minutes":settings.watch_poll_minutes}
+def health(): return {"ok":True,"version":"1.6.0","watch_poll_minutes":settings.watch_poll_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -344,6 +345,54 @@ def scope_analyze(bill_id:int,db:Session=Depends(get_db)):
 def scope_get(bill_id:int,db:Session=Depends(get_db)):
     try:
         return scope_analysis_result(db,bill_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+
+@app.post("/bills/{bill_id}/evidence-packets")
+def evidence_packets_build(
+    bill_id:int,
+    generate_narrative:bool=False,
+    limit:int=25,
+    db:Session=Depends(get_db),
+):
+    try:
+        return build_bill_packets(db,bill_id,generate_narrative=generate_narrative,limit=limit)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,f"Evidence packet build failed: {e}")
+
+@app.get("/bills/{bill_id}/evidence-packets")
+def evidence_packets_list(bill_id:int,db:Session=Depends(get_db)):
+    if not db.get(Bill,bill_id):
+        raise HTTPException(404,"Bill not found")
+    return list_packets(db,bill_id)
+
+@app.post("/sections/{section_id}/evidence-packet")
+def section_evidence_packet(
+    section_id:int,
+    generate_narrative:bool=False,
+    db:Session=Depends(get_db),
+):
+    section=db.get(Section,section_id)
+    if not section:
+        raise HTTPException(404,"Section not found")
+    version=db.get(BillVersion,section.version_id)
+    if not version:
+        raise HTTPException(404,"Bill version not found")
+    try:
+        return build_section_packet(
+            db,version.bill_id,section_id,generate_narrative=generate_narrative
+        )
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,f"Evidence packet build failed: {e}")
+
+@app.get("/evidence-packets/{packet_id}")
+def evidence_packet_get(packet_id:int,db:Session=Depends(get_db)):
+    try:
+        return get_packet(db,packet_id)
     except ValueError as e:
         raise HTTPException(404,str(e))
 
