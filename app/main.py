@@ -7,7 +7,9 @@ from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,Bill
 from app.services.ingest import ingest_federal
 from app.services.monitor import poll_recent_bills
 from app.services.diffing import summary,unified
-from app.services.llm import deep_dive\nfrom app.services.graph import sync_bill_graph,graph_for_bill,relationships_for_bill,create_relationship,get_or_create_entity\nfrom app.schemas.graph import EntityCreate,RelationshipCreate
+from app.services.llm import deep_dive
+from app.services.graph import sync_bill_graph,graph_for_bill,relationships_for_bill,create_relationship,get_or_create_entity
+from app.schemas.graph import EntityCreate,RelationshipCreate
 
 Base.metadata.create_all(engine)
 app=FastAPI(title="LegisWatch",version="0.3.0")
