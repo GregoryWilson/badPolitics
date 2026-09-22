@@ -4,7 +4,7 @@ from app.models.entities import (
     Bill, BillVersion, BillAction, Amendment,
     WatchRule, WatchScan, WatchEvent,
 )
-from app.services.ingest import ingest_federal, ingest_jurisdiction
+from app.services.ingest import ingest_federal, ingest_jurisdiction, discover_jurisdiction
 from app.services.monitor import poll_recent_bills
 from app.services.research import run_bill_research
 from app.services.reporting import build_report
@@ -119,6 +119,56 @@ def scan_bill_watch(db,watch,scan):
         "refreshed":refreshed,
     }
 
+def scan_session_watch(db,watch,scan):
+    session=(watch.metadata_json or {}).get("session")
+    limit=int((watch.metadata_json or {}).get("limit",100))
+    if not session:
+        raise ValueError("Session watch is missing metadata.session")
+    result=discover_jurisdiction(
+        db,
+        watch.jurisdiction,
+        session,
+        limit=limit,
+        ingest=True,
+    )
+    events=[]
+    refreshed={}
+    for ingest_result in result.get("ingested",[]):
+        bill_id=ingest_result.get("bill_id")
+        if not bill_id:
+            continue
+        bill=db.get(Bill,bill_id)
+        if not bill:
+            continue
+        created_versions=ingest_result.get("created_versions") or []
+        documents=ingest_result.get("documents") or []
+        for version in created_versions:
+            key=version.get("sha256") or f'{bill_id}:{version.get("version")}'
+            row=_emit(
+                db,watch,scan,bill,"new_version",key,
+                f"New bill text version detected for {bill.bill_type.upper()} {bill.bill_number}",
+                version,
+            )
+            if row: events.append(row)
+        for document in documents:
+            key=f'{document.get("document_type")}:{document.get("source_url")}'
+            row=_emit(
+                db,watch,scan,bill,"new_document",key,
+                f'New {str(document.get("document_type") or "supporting document").replace("_"," ")} for {bill.bill_type.upper()} {bill.bill_number}',
+                document,
+            )
+            if row: events.append(row)
+        if (created_versions or documents) and (watch.auto_research or watch.auto_report):
+            refreshed[str(bill.id)]=_refresh_outputs(db,watch,bill,events)
+    return {
+        "discovered_count":len(result.get("bills",[])),
+        "ingested_count":len(result.get("ingested",[])),
+        "failed_count":len(result.get("failed",[])),
+        "new_event_ids":[e.id for e in events],
+        "refreshed":refreshed,
+        "source_url":result.get("source_url"),
+    }
+
 def scan_congress_watch(db,watch,scan):
     before_bills=db.scalars(select(Bill).where(
         Bill.jurisdiction=="US",Bill.congress==watch.congress
@@ -167,6 +217,8 @@ def run_watch(db,watch_id:int):
             result=scan_bill_watch(db,watch,scan)
         elif watch.target_type=="congress":
             result=scan_congress_watch(db,watch,scan)
+        elif watch.target_type=="session":
+            result=scan_session_watch(db,watch,scan)
         else:
             raise ValueError(f"Unsupported watch target type: {watch.target_type}")
         scan.status="completed"
