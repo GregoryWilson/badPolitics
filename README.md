@@ -171,6 +171,19 @@ A fiscal note or bill analysis is treated as source material, not as a negative 
 
 Fiscal and document-comparison findings are review signals, not conclusions about intent. A bill-analysis scope gap means the deterministic subject signal found in bill text was not explicitly detected in that analysis text. It does not establish concealment or inaccuracy. Likewise, a larger amount in a fiscal note may reflect implementation cost, revenue effects, or accounting context rather than spending directly appropriated by the bill.
 
+## MVP-13
+- persisted provision lineage across stored bill-text versions
+- introduced / modified / removed section events
+- section-level unified diffs and similarity
+- candidate amendment association using version-date windows and descriptive text overlap
+- amendment sponsor/offerer names preserved when present in source metadata
+- report findings for provisions added or modified after initial text
+- provision-lineage API and dashboard tab
+
+### Lineage and amendment-attribution semantics
+
+Provision lineage is a version-history fact: it records when a section appears, changes, or disappears across stored bill versions. Amendment attribution is deliberately conservative. Unless an authoritative source directly identifies an amendment as the source of a change, the application labels the relationship as a candidate association. Date proximity or text overlap alone does not establish authorship, intent, or responsibility.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -191,6 +204,8 @@ GET  /bills
 GET  /bills/{bill_id}/documents
 POST /bills/{bill_id}/fiscal-analysis
 GET  /bills/{bill_id}/fiscal-analysis
+POST /bills/{bill_id}/lineage
+GET  /bills/{bill_id}/lineage
 GET  /bills/{bill_id}/timeline
 GET  /bills/{bill_id}/findings
 GET  /bills/{bill_id}/diff/latest
