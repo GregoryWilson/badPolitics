@@ -119,15 +119,20 @@ def scan_bill_watch(db,watch,scan):
     }
 
 def scan_congress_watch(db,watch,scan):
-    before_ids=set(db.scalars(select(Bill.id).where(
+    before_bills=db.scalars(select(Bill).where(
         Bill.jurisdiction=="US",Bill.congress==watch.congress
-    )).all())
+    )).all()
+    before={bill.id:_snapshot_bill(db,bill) for bill in before_bills}
+    before_ids=set(before)
     results=poll_recent_bills(db,watch.congress,limit=int((watch.metadata_json or {}).get("limit",50)))
     after_bills=db.scalars(select(Bill).where(
         Bill.jurisdiction=="US",Bill.congress==watch.congress
     )).all()
     events=[]
+    refreshed={}
     for bill in after_bills:
+        after=_snapshot_bill(db,bill)
+        bill_events=[]
         if bill.id not in before_ids:
             key=_bill_key(bill.congress,bill.bill_type,bill.bill_number)
             row=_emit(
@@ -135,10 +140,17 @@ def scan_congress_watch(db,watch,scan):
                 f"Newly monitored bill: {bill.bill_type.upper()} {bill.bill_number}",
                 {"title":bill.title,"latest_action":bill.latest_action},
             )
-            if row: events.append(row)
+            if row:
+                events.append(row); bill_events.append(row)
+        else:
+            bill_events=_diff_events(db,watch,scan,bill,before[bill.id],after)
+            events.extend(bill_events)
+        if bill_events and (watch.auto_research or watch.auto_report):
+            refreshed[str(bill.id)]=_refresh_outputs(db,watch,bill,bill_events)
     return {
         "poll_result_count":len(results),
         "new_event_ids":[e.id for e in events],
+        "refreshed":refreshed,
     }
 
 def run_watch(db,watch_id:int):
