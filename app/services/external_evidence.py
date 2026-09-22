@@ -52,7 +52,9 @@ def import_fec_receipts(db, committee_entity_id:int, committee_id:str, contribut
     imported=[]
     for i,item in enumerate(results):
         contributor=item.get("contributor_name") or contributor_name
-        contributor_entity=get_or_create_entity(db,"organization",contributor,metadata={"fec_contributor_type":item.get("entity_type_desc")})
+        contributor_desc=(item.get("entity_type_desc") or "").upper()
+        contributor_type="person" if "INDIVIDUAL" in contributor_desc else "organization"
+        contributor_entity=get_or_create_entity(db,contributor_type,contributor,metadata={"fec_contributor_type":item.get("entity_type_desc")})
         fallback=":".join([committee_id,contributor,str(item.get("contribution_receipt_date")),str(item.get("contribution_receipt_amount")),str(i)])
         transaction_id=_record_id(item.get("sub_id") or item.get("transaction_id"),hashlib.sha256(fallback.encode()).hexdigest()[:24])
         source_url="https://www.fec.gov/data/receipts/"
