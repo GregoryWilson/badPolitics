@@ -1,4 +1,4 @@
-const state={bills:[],selected:null,report:null};
+const state={bills:[],selected:null,report:null,watches:[],events:[]};
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -26,6 +26,64 @@ const api=async(url,opts={})=>{
 };
 const status=(msg,cls="")=>{$("statusLine").className="status-line "+cls;$("statusLine").textContent=msg||""};
 
+async function loadWatchData(){
+  try{
+    const [watches,events]=await Promise.all([api("/watches"),api("/watch-events?limit=30")]);
+    state.watches=watches;
+    state.events=events;
+    renderChangeFeed();
+    updateWatchButton();
+  }catch(e){
+    $("changeFeed").innerHTML='<div class="notice">Unable to load change feed.</div>';
+  }
+}
+function renderChangeFeed(){
+  $("changeFeed").innerHTML=state.events.length?state.events.map(e=>`
+    <div class="change-item" data-bill-id="${e.bill_id??""}">
+      <div class="change-type">${esc(e.event_type.replaceAll("_"," "))}</div>
+      <div>${esc(e.title)}</div>
+      <div class="bill-item-action">${esc(e.created_at||"")}</div>
+    </div>`).join(""):'<div class="notice">No watch changes recorded yet.</div>';
+  document.querySelectorAll(".change-item[data-bill-id]").forEach(el=>{
+    const id=Number(el.dataset.billId);
+    if(id)el.onclick=()=>selectBill(id);
+  });
+}
+function updateWatchButton(){
+  if(!state.selected)return;
+  const watched=state.watches.some(w=>w.active&&w.target_type==="bill"&&w.congress===state.selected.congress&&w.bill_type===state.selected.bill_type&&String(w.bill_number)===String(state.selected.bill_number));
+  $("watchBill").textContent=watched?"Watching":"Watch Bill";
+  $("watchBill").disabled=watched;
+}
+async function watchSelectedBill(){
+  if(!state.selected)return;
+  try{
+    const payload={
+      name:`${state.selected.bill_type.toUpperCase()} ${state.selected.bill_number}`,
+      target_type:"bill",
+      congress:state.selected.congress,
+      bill_type:state.selected.bill_type,
+      bill_number:String(state.selected.bill_number),
+      auto_research:false,
+      auto_report:false
+    };
+    await api("/watches",{method:"POST",body:JSON.stringify(payload)});
+    await loadWatchData();
+    status("Bill added to watchlist.","success");
+  }catch(e){status("Unable to create watch: "+e.message,"error")}
+}
+async function scanWatches(){
+  $("scanWatches").disabled=true;
+  status("Scanning active watches…");
+  try{
+    const result=await api("/watches/scan-all",{method:"POST"});
+    const failed=(result.results||[]).filter(r=>r.status==="failed").length;
+    await Promise.all([loadBills(),loadWatchData()]);
+    status(failed?`Watch scan completed with ${failed} failure(s).`:"Watch scan completed.","success");
+  }catch(e){status("Watch scan failed: "+e.message,"error")}
+  finally{$("scanWatches").disabled=false}
+}
+
 async function loadBills(){
   status("Loading bills…");
   try{
@@ -48,7 +106,7 @@ function renderBillList(){
 
 async function selectBill(id){
   const bill=state.bills.find(b=>b.id===id); if(!bill)return;
-  state.selected=bill; state.report=null; renderBillList();
+  state.selected=bill; state.report=null; renderBillList(); updateWatchButton();
   $("emptyState").hidden=true;$("billView").hidden=false;
   $("billIdLine").textContent=`${bill.bill_type.toUpperCase()} ${bill.bill_number} · Congress ${bill.congress}`;
   $("billTitle").textContent=bill.title||"Untitled bill";
@@ -156,7 +214,9 @@ function activateTab(name){
 
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
 $("billSearch").oninput=renderBillList;
-$("refreshBills").onclick=loadBills;
+$("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData()]);await loadWatchData()};
+$("scanWatches").onclick=scanWatches;
+$("watchBill").onclick=watchSelectedBill;
 $("runResearch").onclick=runResearch;
 $("buildReport").onclick=buildReport;
 loadBills();
