@@ -13,12 +13,13 @@ from app.schemas.graph import EntityCreate,RelationshipCreate
 from app.services.metrics import bill_metrics
 from app.schemas.evidence import FECCandidateImport,FECReceiptImport,LDAClientImport
 from app.services.external_evidence import import_fec_candidate,import_fec_receipts,import_lda_client
+from app.services.correlation import correlate_bill,correlations_for_bill
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.5.0")
+app=FastAPI(title="LegisWatch",version="0.6.0")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.5.0"}
+def health(): return {"ok":True,"version":"0.6.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -189,3 +190,17 @@ def evidence_records(source_system:str|None=None,record_type:str|None=None,limit
         "source_url":r.source_url,
         "raw":r.raw_json,
     } for r in rows]
+
+
+@app.post("/bills/{bill_id}/correlate")
+def bill_correlate(bill_id:int,db:Session=Depends(get_db)):
+    try:
+        return correlate_bill(db,bill_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+
+@app.get("/bills/{bill_id}/correlations")
+def bill_correlations(bill_id:int,db:Session=Depends(get_db)):
+    if not db.get(Bill,bill_id):
+        raise HTTPException(404,"Bill not found")
+    return correlations_for_bill(db,bill_id)
