@@ -4,6 +4,13 @@ from app.models.entities import (
 )
 from app.services.graph import normalize_name
 
+TYPE_GROUPS = {
+    "person":"person",
+    "organization":"organization",
+    "committee":"organization",
+    "lobbying_registrant":"organization",
+}
+
 ID_KEYS = {
     "bioguide",
     "fec_candidate_id",
@@ -31,11 +38,18 @@ def _shared_external_id(a: EvidenceEntity, b: EvidenceEntity):
             return key,str(left[key])
     return None
 
+def _compatible_types(a: EvidenceEntity, b: EvidenceEntity):
+    left=TYPE_GROUPS.get(a.entity_type,a.entity_type)
+    right=TYPE_GROUPS.get(b.entity_type,b.entity_type)
+    return left==right
+
 def _match(a: EvidenceEntity, b: EvidenceEntity):
     shared=_shared_external_id(a,b)
     if shared:
         key,value=shared
         return "external_id",1.0,f"Both entities share {key}={value}."
+    if not _compatible_types(a,b):
+        return None
     if a.normalized_name and a.normalized_name==b.normalized_name:
         return "exact_name",0.95,f"Canonical names normalize to the same value: {a.normalized_name}."
     aa=_aliases(a); ba=_aliases(b)
