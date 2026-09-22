@@ -186,3 +186,13 @@ class ResearchStep(Base):
     reason:Mapped[str]=mapped_column(Text)
     result_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class InvestigationReport(Base):
+    __tablename__="investigation_reports"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    research_run_id:Mapped[int|None]=mapped_column(ForeignKey("research_runs.id",ondelete="SET NULL"),nullable=True)
+    status:Mapped[str]=mapped_column(String(32),default="complete")
+    report_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
