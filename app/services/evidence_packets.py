@@ -156,8 +156,7 @@ def _lineage_context(db,bill_id,version,section,entries,counter):
         select(ProvisionLineage).where(
             ProvisionLineage.bill_id==bill_id,
             ProvisionLineage.section_number==section.section_number,
-            ProvisionLineage.to_version_id==version.id,
-        )
+        ).order_by(ProvisionLineage.to_version_id,ProvisionLineage.id)
     ).all()
     for event in events:
         lid=_append(
@@ -229,7 +228,7 @@ def _stable_hash_payload(value):
         return {
             key:_stable_hash_payload(item)
             for key,item in value.items()
-            if not key.endswith("_id") and not key.endswith("_ids")
+            if key!="id" and not key.endswith("_id") and not key.endswith("_ids")
         }
     if isinstance(value,list):
         return [_stable_hash_payload(item) for item in value]
@@ -418,6 +417,7 @@ def build_bill_packets(
     }
 
 def packet_view(row):
+    rejected=bool(row.narrative and row.narrative.startswith("Narrative rejected"))
     return {
         "packet_id":row.id,
         "bill_id":row.bill_id,
@@ -426,6 +426,7 @@ def packet_view(row):
         "packet_hash":row.packet_hash,
         "packet":row.packet_json,
         "narrative":row.narrative,
+        "narrative_status":"rejected" if rejected else ("complete" if row.narrative else "not_generated"),
         "llm_model":row.llm_model,
         "created_at":row.created_at.isoformat() if row.created_at else None,
     }
