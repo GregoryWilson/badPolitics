@@ -1,27 +1,40 @@
-from fastapi import FastAPI, Depends, HTTPException
+from fastapi import FastAPI,Depends,HTTPException
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.base import Base
-from app.db.session import engine, get_db
-from app.models.entities import Bill, BillVersion, Section, Finding
+from app.db.session import engine,get_db
+from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment
 from app.services.ingest import ingest_federal
-from app.services.diffing import summary, unified
+from app.services.monitor import poll_recent_bills
+from app.services.diffing import summary,unified
 from app.services.llm import deep_dive
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.1.0")
+app=FastAPI(title="LegisWatch",version="0.2.0")
 
 @app.get("/health")
-def health(): return {"ok":True}
+def health(): return {"ok":True,"version":"0.2.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
     try: return ingest_federal(db,congress,bill_type,number)
     except Exception as e: raise HTTPException(502,str(e))
 
+@app.post("/monitor/federal/{congress}")
+def monitor(congress:int,limit:int=50,db:Session=Depends(get_db)):
+    try: return {"results":poll_recent_bills(db,congress,limit)}
+    except Exception as e: raise HTTPException(502,str(e))
+
 @app.get("/bills")
 def bills(db:Session=Depends(get_db)):
     return [{"id":b.id,"congress":b.congress,"bill_type":b.bill_type,"bill_number":b.bill_number,"title":b.title,"latest_action":b.latest_action} for b in db.scalars(select(Bill).order_by(Bill.id.desc())).all()]
+
+@app.get("/bills/{bill_id}/timeline")
+def timeline(bill_id:int,db:Session=Depends(get_db)):
+    actions=db.scalars(select(BillAction).where(BillAction.bill_id==bill_id).order_by(BillAction.action_date.desc())).all()
+    sponsors=db.scalars(select(BillSponsor).where(BillSponsor.bill_id==bill_id).order_by(BillSponsor.role,BillSponsor.full_name)).all()
+    amendments=db.scalars(select(Amendment).where(Amendment.bill_id==bill_id).order_by(Amendment.id.desc())).all()
+    return {"actions":[{"date":a.action_date,"text":a.text,"code":a.action_code} for a in actions],"sponsors":[{"name":s.full_name,"role":s.role,"party":s.party,"state":s.state,"district":s.district,"bioguide_id":s.bioguide_id} for s in sponsors],"amendments":[{"type":a.amendment_type,"number":a.amendment_number,"description":a.description,"latest_action":a.latest_action,"source_url":a.source_url} for a in amendments]}
 
 @app.get("/bills/{bill_id}/findings")
 def findings(bill_id:int,db:Session=Depends(get_db)):
@@ -41,7 +54,6 @@ def section_deep_dive(section_id:int,db:Session=Depends(get_db)):
     if not sec: raise HTTPException(404,"Section not found")
     version=db.get(BillVersion,sec.version_id); bill=db.get(Bill,version.bill_id)
     fs=db.scalars(select(Finding).where(Finding.section_id==section_id).order_by(Finding.severity.desc())).all()
-    packed=[{"kind":f.kind,"evidence":f.evidence} for f in fs]
-    try: analysis=deep_dive(bill.title or f"{bill.bill_type} {bill.bill_number}",sec.text,packed)
+    try: analysis=deep_dive(bill.title or f"{bill.bill_type} {bill.bill_number}",sec.text,[{"kind":f.kind,"evidence":f.evidence} for f in fs])
     except Exception as e: raise HTTPException(502,f"Local LLM failed: {e}")
     return {"bill":bill.title,"version":version.version_code,"section":sec.section_number,"analysis":analysis}
