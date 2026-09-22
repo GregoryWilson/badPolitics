@@ -36,3 +36,11 @@ def test_no_fuzzy_match():
     a=entity("Acme Corporation")
     b=entity("Acme Holdings")
     assert _match(a,b) is None
+
+
+def test_name_match_rejects_incompatible_types():
+    a=entity("Jordan Smith")
+    a.entity_type="person"
+    b=entity("Jordan Smith")
+    b.entity_type="organization"
+    assert _match(a,b) is None
