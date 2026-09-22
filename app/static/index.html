@@ -13,7 +13,8 @@
       <p>Evidence-first legislative monitoring. Review signals are not political ratings.</p>
     </div>
     <div class="actions">
-      <button id="scanWatches">Scan Watches</button>\n      <button id="refreshBills">Refresh</button>
+      <button id="scanWatches">Scan Watches</button>
+      <button id="refreshBills">Refresh</button>
       <a href="/docs" target="_blank" rel="noreferrer">API Docs</a>
     </div>
   </header>
@@ -25,6 +26,8 @@
         <input id="billSearch" type="search" placeholder="Filter bills">
       </div>
       <div id="billList" class="bill-list"></div>
+      <div class="change-feed-header"><h2>Recent Changes</h2></div>
+      <div id="changeFeed" class="change-feed"></div>
     </aside>
 
     <section id="workspace">
@@ -41,7 +44,8 @@
             <p id="latestAction"></p>
           </div>
           <div class="bill-actions">
-            <button id="watchBill">Watch Bill</button>\n            <button id="runResearch">Run Research</button>
+            <button id="watchBill">Watch Bill</button>
+            <button id="runResearch">Run Research</button>
             <button id="buildReport">Build Report</button>
           </div>
         </div>
