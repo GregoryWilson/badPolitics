@@ -3,6 +3,7 @@ from sqlalchemy import select
 from app.models.entities import (
     Bill, BillVersion, Section, Finding, LegislativeEntityLink, EvidenceEntity,
     CorrelationFinding, EntityRelationship, ResearchRun, ResearchStep, InvestigationReport,
+    LegislativeDocument,
 )
 from app.services.metrics import bill_metrics
 from app.services.correlation import correlations_for_bill
@@ -113,6 +114,24 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
             "caveat":"Correlation establishes record linkage only; it does not establish influence, causation, conflict of interest, or wrongdoing.",
         })
 
+    supporting_documents=db.scalars(
+        select(LegislativeDocument)
+        .where(LegislativeDocument.bill_id==bill_id)
+        .order_by(LegislativeDocument.document_type,LegislativeDocument.id)
+    ).all()
+    document_rows=[{
+        "id":d.id,
+        "document_type":d.document_type,
+        "description":d.description,
+        "source_url":d.source_url,
+        "source_system":d.source_system,
+        "issued_on":d.issued_on,
+        "format":d.format,
+        "sha256":d.sha256,
+        "has_text":d.text is not None,
+        "metadata":d.metadata_json,
+    } for d in supporting_documents]
+
     research_summary=None
     research_steps=[]
     if run:
@@ -145,6 +164,7 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
             "by_category":dict(sorted(category_counts.items())),
         },
         "findings":findings,
+        "supporting_documents":document_rows,
         "research":research_summary,
         "research_steps":research_steps,
         "interpretation_note":"Findings organize source-backed facts and review signals. They are not a political rating, corruption determination, motive inference, or recommendation.",
