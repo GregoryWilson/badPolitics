@@ -46,17 +46,14 @@ def test_candidate_amendment_uses_temporal_and_text_overlap():
     assert overlap>0
     assert "between" in evidence
 
-def test_temporal_only_attribution_is_low_confidence():
+def test_temporal_only_is_not_enough_for_attribution():
     old=version(1,"2026-01-01")
     new=version(2,"2026-02-01")
     a=amendment(13,"2026-01-20","Renames an unrelated commission.")
-    rows=_candidate_attributions(
+    assert _candidate_attributions(
         [a],old,new,
         "SECTION 9. A tax credit is created for eligible manufacturers.",
-    )
-    assert rows
-    assert rows[0][1]==0.40
-    assert rows[0][4]=="temporal_only"
+    )==[]
 
 def test_outside_window_without_text_overlap_is_not_attributed():
     old=version(1,"2026-01-01")
