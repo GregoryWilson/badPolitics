@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>badPolitics / LegisWatch</title>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header>
+    <div>
+      <h1>badPolitics <span>/ LegisWatch</span></h1>
+      <p>Evidence-first legislative monitoring. Review signals are not political ratings.</p>
+    </div>
+    <div class="actions">
+      <button id="refreshBills">Refresh</button>
+      <a href="/docs" target="_blank" rel="noreferrer">API Docs</a>
+    </div>
+  </header>
+
+  <main>
+    <aside>
+      <div class="panel-title">
+        <h2>Bills</h2>
+        <input id="billSearch" type="search" placeholder="Filter bills">
+      </div>
+      <div id="billList" class="bill-list"></div>
+    </aside>
+
+    <section id="workspace">
+      <div id="emptyState" class="empty-state">
+        <h2>Select a bill</h2>
+        <p>Metrics, findings, timeline, version changes, research and investigation reports will appear here.</p>
+      </div>
+
+      <div id="billView" hidden>
+        <div class="bill-header">
+          <div>
+            <div id="billIdLine" class="eyebrow"></div>
+            <h2 id="billTitle"></h2>
+            <p id="latestAction"></p>
+          </div>
+          <div class="bill-actions">
+            <button id="runResearch">Run Research</button>
+            <button id="buildReport">Build Report</button>
+          </div>
+        </div>
+
+        <div id="metricCards" class="metric-grid"></div>
+
+        <nav class="tabs" aria-label="Bill details">
+          <button class="tab active" data-tab="findings">Findings</button>
+          <button class="tab" data-tab="timeline">Timeline</button>
+          <button class="tab" data-tab="diff">Version Diff</button>
+          <button class="tab" data-tab="graph">Evidence Graph</button>
+          <button class="tab" data-tab="report">Report</button>
+        </nav>
+
+        <div id="statusLine" class="status-line"></div>
+        <div id="findings" class="tab-panel"></div>
+        <div id="timeline" class="tab-panel" hidden></div>
+        <div id="diff" class="tab-panel" hidden></div>
+        <div id="graph" class="tab-panel" hidden></div>
+        <div id="report" class="tab-panel" hidden></div>
+      </div>
+    </section>
+  </main>
+
+  <script src="/static/app.js"></script>
+</body>
+</html>
