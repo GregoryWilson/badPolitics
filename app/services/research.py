@@ -46,9 +46,13 @@ def run_bill_research(db, bill_id:int, filing_year:int|None=None,
 
         seen_entities={}
         for link,entity in links:
-            seen_entities[entity.id]=(link,entity)
+            if entity.id not in seen_entities:
+                seen_entities[entity.id]={"entity":entity,"link_types":set()}
+            seen_entities[entity.id]["link_types"].add(link.link_type)
 
-        for link,entity in seen_entities.values():
+        for entry in seen_entities.values():
+            entity=entry["entity"]
+            link_types=entry["link_types"]
             if entity.entity_type=="person":
                 candidate_id=(entity.external_ids or {}).get("fec_candidate_id")
                 if include_fec_candidate_links and candidate_id:
@@ -60,11 +64,14 @@ def run_bill_research(db, bill_id:int, filing_year:int|None=None,
                         _step(db,run.id,entity.id,"fec","candidate_committees","failed",
                               "Verified FEC candidate identifier was present, but retrieval failed.",
                               {"error":str(exc)})
-                else:
+                elif include_fec_candidate_links:
                     _step(db,run.id,entity.id,"fec","candidate_committees","skipped",
                           "No verified FEC candidate identifier is attached to this bill-linked person.")
+                else:
+                    _step(db,run.id,entity.id,"fec","candidate_committees","skipped",
+                          "FEC candidate research disabled for this run.")
 
-            elif entity.entity_type=="organization" and link.link_type=="named_organization":
+            elif entity.entity_type=="organization" and "named_organization" in link_types:
                 if include_lda_clients:
                     try:
                         result=import_lda_client(
@@ -97,11 +104,13 @@ def run_bill_research(db, bill_id:int, filing_year:int|None=None,
         counts={}
         for s in steps:
             counts[s.status]=counts.get(s.status,0)+1
-        run.status="completed"
+        run.status="completed_with_errors" if counts.get("failed",0) else "completed"
         run.completed_at=datetime.utcnow()
+        correlation_ids=[c["id"] for c in correlations.get("correlations",[])]
         run.summary_json={
             "step_counts":counts,
             "correlation_count":correlations.get("correlation_count",0),
+            "correlation_ids":correlation_ids,
         }
         db.commit()
         return research_packet(db,run.id)
