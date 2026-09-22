@@ -94,6 +94,18 @@ Automatic research is deliberately conservative. A person is queried against FEC
 
 Reports separate factual source records, deterministic review signals, correlations, and caveats. A report can identify reported campaign-finance relationships, lobbying records, narrow beneficiaries, exemptions, retroactivity, spending language, and other review-worthy facts without concluding that a political actor acted improperly.
 
+## MVP-8
+- local dashboard served directly by FastAPI
+- searchable bill watchlist
+- neutral objective metric cards
+- deterministic finding drill-down
+- sponsor/action/amendment timeline
+- latest version diff viewer
+- evidence graph viewer
+- one-click conservative research run
+- one-click investigation report generation
+- source-link protocol hardening
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -101,7 +113,7 @@ Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LL
 docker compose up --build
 ```
 
-Open `http://localhost:8000/docs`.
+Open `http://localhost:8000/` for the dashboard or `http://localhost:8000/docs` for the API.
 
 ## Endpoints
 ```
