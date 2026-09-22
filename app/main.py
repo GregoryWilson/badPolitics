@@ -355,13 +355,18 @@ async def stop_watch_loop():
 def watch_create(payload:WatchCreate,db:Session=Depends(get_db)):
     bill_type=payload.bill_type.lower() if payload.bill_type else None
     bill_number=str(payload.bill_number) if payload.bill_number else None
-    existing=db.scalar(select(WatchRule).where(
+    candidates=db.scalars(select(WatchRule).where(
         WatchRule.target_type==payload.target_type,
         WatchRule.jurisdiction==payload.jurisdiction,
         WatchRule.congress==payload.congress,
         WatchRule.bill_type==bill_type,
         WatchRule.bill_number==bill_number,
-    ))
+    )).all()
+    existing=next((
+        w for w in candidates
+        if payload.target_type!="session"
+        or (w.metadata_json or {}).get("session")==payload.metadata.get("session")
+    ),None)
     if existing:
         existing.active=True
         existing.auto_research=payload.auto_research
