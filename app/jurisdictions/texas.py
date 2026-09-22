@@ -1,0 +1,219 @@
+import ftplib
+import io
+import re
+import time
+import xml.etree.ElementTree as ET
+from datetime import datetime
+import httpx
+
+from app.core.config import settings
+from app.jurisdictions.base import (
+    NormalizedBill, NormalizedVersion, NormalizedAction, NormalizedSponsor,
+)
+
+BILL_TYPES={
+    "HB":("house_bills","HB"),
+    "HCR":("house_concurrent_resolutions","HC"),
+    "HJR":("house_joint_resolutions","HJ"),
+    "HR":("house_resolutions","HR"),
+    "SB":("senate_bills","SB"),
+    "SCR":("senate_concurrent_resolutions","SC"),
+    "SJR":("senate_joint_resolutions","SJ"),
+    "SR":("senate_resolutions","SR"),
+}
+VERSION_CODES={
+    "Introduced":"I",
+    "Engrossed":"E",
+    "Senate Committee Report":"S",
+    "House Committee Report":"H",
+    "Enrolled":"F",
+}
+
+class TexasTLOAdapter:
+    code="TX"
+    name="Texas Legislature"
+    source_system="texas_tlo"
+
+    def __init__(self):
+        self.ftp_host=settings.texas_ftp_host
+        self.http=httpx.Client(timeout=45,follow_redirects=True)
+
+    def source_info(self):
+        return {
+            "publisher":"Texas Legislature Online / Texas Legislative Council",
+            "bulk_host":self.ftp_host,
+            "method":"anonymous FTP bill-history XML + official bill-text HTML",
+            "official_download_help":"https://capitol.texas.gov/billlookup/filedownloads.aspx",
+            "note":"Bulk data is subject to revision and is not a substitute for official versions.",
+        }
+
+    def _session(self,session:str):
+        value=session.upper().strip()
+        if re.fullmatch(r"\d{2}",value):
+            value+="R"
+        if not re.fullmatch(r"\d{2}[A-Z]",value):
+            raise ValueError("Texas session must look like 89R, 89S, etc.")
+        return value,int(value[:2])
+
+    def _bill_parts(self,bill_type:str,number:str):
+        kind=bill_type.upper().replace(" ","")
+        if kind not in BILL_TYPES:
+            raise ValueError(f"Unsupported Texas bill type: {bill_type}")
+        n=int(number)
+        if n<1:
+            raise ValueError("Bill number must be positive")
+        folder,prefix=BILL_TYPES[kind]
+        low=(n//100)*100
+        if low==0:
+            low=1
+            high=99
+        else:
+            high=low+99
+        group=f"{prefix}{low:05d}_{prefix}{high:05d}"
+        filename=f"{prefix}{n:05d}.xml"
+        return kind,str(n),folder,prefix,group,filename
+
+    def _history_path(self,session,bill_type,number):
+        session_code,_=self._session(session)
+        _,_,folder,_,group,filename=self._bill_parts(bill_type,number)
+        return f"/bills/{session_code}/billhistory/{folder}/{group}/{filename}"
+
+    def _ftp_bytes(self,path:str):
+        last=None
+        for attempt in range(3):
+            try:
+                ftp=ftplib.FTP(self.ftp_host,timeout=30)
+                ftp.login()
+                buf=io.BytesIO()
+                ftp.retrbinary(f"RETR {path}",buf.write)
+                ftp.quit()
+                return buf.getvalue()
+            except Exception as exc:
+                last=exc
+                time.sleep(2**attempt)
+        raise RuntimeError(f"Texas FTP retrieval failed for {path}: {last}")
+
+    def _download_text(self,url:str):
+        safe=url.replace("http://capitol.texas.gov/","https://capitol.texas.gov/")
+        response=self.http.get(safe)
+        response.raise_for_status()
+        return response.text,safe
+
+    @staticmethod
+    def _iso_date(value):
+        if not value:
+            return None
+        value=value.strip()
+        for fmt in ("%m/%d/%Y","%Y-%m-%d"):
+            try:
+                return datetime.strptime(value,fmt).date().isoformat()
+            except ValueError:
+                pass
+        return value
+
+    @staticmethod
+    def _split_people(value):
+        return [x.strip() for x in (value or "").split(" | ") if x.strip()]
+
+    def fetch_bill(self,session:str,bill_type:str,number:str):
+        session_code,session_number=self._session(session)
+        kind,number,_,_,_,_=self._bill_parts(bill_type,number)
+        history_path=self._history_path(session_code,kind,number)
+        raw=self._ftp_bytes(history_path)
+        root=ET.fromstring(raw)
+
+        caption=root.findtext("caption")
+        if not caption or b"Bill does not exist" in raw:
+            raise ValueError(f"Texas bill not found: {session_code} {kind} {number}")
+
+        official_page=(
+            "https://capitol.texas.gov/BillLookup/History.aspx?"
+            f"LegSess={session_code}&Bill={kind}{number}"
+        )
+        versions=[]
+        for version in root.iterfind("billtext/docTypes/bill/versions/version"):
+            desc=(version.findtext("versionDescription") or "").strip() or None
+            url=(version.findtext("WebHTMLURL") or "").strip()
+            if not url:
+                continue
+            try:
+                text,source_url=self._download_text(url)
+            except Exception:
+                text=None
+                source_url=url.replace("http://capitol.texas.gov/","https://capitol.texas.gov/")
+            match=re.search(r"([ISEHF])\.(?:HTM|HTML)$",source_url,re.I)
+            code=(match.group(1).upper() if match else VERSION_CODES.get(desc or "",desc or "unknown"))
+            versions.append(NormalizedVersion(
+                code=code,
+                name=desc,
+                source_url=source_url,
+                text=text,
+                format="html",
+            ))
+
+        actions=[]
+        latest_action=None
+        latest_date=""
+        for action in root.findall("actions/action"):
+            date=self._iso_date(action.findtext("date"))
+            description=(action.findtext("description") or "").strip()
+            code=(action.findtext("actionNumber") or "").strip() or None
+            if not description:
+                continue
+            actions.append(NormalizedAction(
+                date=date,
+                text=description,
+                code=code,
+                source_url=official_page,
+                raw={"actor_code":code[:1] if code else None},
+            ))
+            if (date or "")>=latest_date:
+                latest_date=date or latest_date
+                latest_action=description
+
+        sponsors=[]
+        seen=set()
+        for tag,role in (
+            ("authors","sponsor"),
+            ("coauthors","cosponsor"),
+            ("sponsors","sponsor"),
+            ("cosponsors","cosponsor"),
+        ):
+            for name in self._split_people(root.findtext(tag)):
+                key=(name.casefold(),role)
+                if key in seen:
+                    continue
+                seen.add(key)
+                sponsors.append(NormalizedSponsor(
+                    name=name,
+                    role=role,
+                    raw={"texas_role_source":tag},
+                ))
+
+        subjects=[
+            (subject.text or "").strip()
+            for subject in root.iterfind("subjects/subject")
+            if (subject.text or "").strip()
+        ]
+        metadata={
+            "session":session_code,
+            "identifier":f"{kind} {number}",
+            "history_ftp_url":f"ftp://{self.ftp_host}{history_path}",
+            "subjects":subjects,
+            "source_notice":"Texas bulk legislative data is subject to revision.",
+        }
+        return NormalizedBill(
+            jurisdiction=self.code,
+            session=session_code,
+            session_number=session_number,
+            bill_type=kind.lower(),
+            bill_number=number,
+            title=caption.strip(),
+            latest_action=latest_action,
+            source_url=official_page,
+            source_system=self.source_system,
+            metadata=metadata,
+            versions=versions,
+            actions=actions,
+            sponsors=sponsors,
+        )
