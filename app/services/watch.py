@@ -4,17 +4,17 @@ from app.models.entities import (
     Bill, BillVersion, BillAction, Amendment,
     WatchRule, WatchScan, WatchEvent,
 )
-from app.services.ingest import ingest_federal
+from app.services.ingest import ingest_federal, ingest_jurisdiction
 from app.services.monitor import poll_recent_bills
 from app.services.research import run_bill_research
 from app.services.reporting import build_report
 
-def _bill_key(congress,bill_type,bill_number):
-    return f"{congress}:{bill_type.lower()}:{bill_number}"
+def _bill_key(congress,bill_type,bill_number,jurisdiction="US"):
+    return f"{jurisdiction.upper()}:{congress}:{bill_type.lower()}:{bill_number}"
 
-def _find_bill(db,congress,bill_type,bill_number):
+def _find_bill(db,congress,bill_type,bill_number,jurisdiction="US"):
     return db.scalar(select(Bill).where(
-        Bill.jurisdiction=="US",
+        Bill.jurisdiction==jurisdiction.upper(),
         Bill.congress==congress,
         Bill.bill_type==bill_type.lower(),
         Bill.bill_number==str(bill_number),
@@ -95,15 +95,16 @@ def _refresh_outputs(db,watch,bill,events):
     return result
 
 def scan_bill_watch(db,watch,scan):
-    bill=_find_bill(db,watch.congress,watch.bill_type,watch.bill_number)
+    bill=_find_bill(db,watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction)
     before=_snapshot_bill(db,bill)
-    ingest_result=ingest_federal(db,watch.congress,watch.bill_type,watch.bill_number)
-    bill=_find_bill(db,watch.congress,watch.bill_type,watch.bill_number)
+    session=(watch.metadata_json or {}).get("session") or str(watch.congress)
+    ingest_result=ingest_jurisdiction(db,watch.jurisdiction,session,watch.bill_type,watch.bill_number)
+    bill=_find_bill(db,watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction)
     after=_snapshot_bill(db,bill)
     events=[]
     if not before["exists"] and bill:
         row=_emit(
-            db,watch,scan,bill,"bill_discovered",_bill_key(watch.congress,watch.bill_type,watch.bill_number),
+            db,watch,scan,bill,"bill_discovered",_bill_key(watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction),
             f"Bill added to local store: {bill.bill_type.upper()} {bill.bill_number}",
             {"title":bill.title},
         )

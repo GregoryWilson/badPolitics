@@ -67,6 +67,7 @@ def bill_metrics(db, bill_id: int):
     return {
         "bill_id":bill.id,
         "jurisdiction":bill.jurisdiction,
+        "session":(bill.metadata_json or {}).get("jurisdiction_session") or str(bill.congress),
         "congress":bill.congress,
         "bill_type":bill.bill_type,
         "bill_number":bill.bill_number,

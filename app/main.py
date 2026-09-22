@@ -8,7 +8,7 @@ from sqlalchemy import select
 from app.db.base import Base
 from app.db.session import engine,get_db,SessionLocal
 from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity,ExternalEvidenceRecord,WatchRule
-from app.services.ingest import ingest_federal
+from app.services.ingest import ingest_federal,ingest_jurisdiction
 from app.services.monitor import poll_recent_bills
 from app.services.diffing import summary,unified
 from app.services.llm import deep_dive
@@ -24,9 +24,10 @@ from app.services.reporting import build_report,get_report
 from app.schemas.watch import WatchCreate,WatchUpdate
 from app.services.watch import run_watch,run_active_watches,list_events,get_scan
 from app.core.config import settings
+from app.jurisdictions import list_adapters
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="1.0.0")
+app=FastAPI(title="LegisWatch",version="1.1.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -35,12 +36,25 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"1.0.0","watch_poll_minutes":settings.watch_poll_minutes}
+def health(): return {"ok":True,"version":"1.1.0","watch_poll_minutes":settings.watch_poll_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
     try: return ingest_federal(db,congress,bill_type,number)
     except Exception as e: raise HTTPException(502,str(e))
+
+@app.get("/jurisdictions")
+def jurisdictions():
+    return list_adapters()
+
+@app.post("/jurisdictions/{jurisdiction}/ingest/{session}/{bill_type}/{number}")
+def jurisdiction_ingest(jurisdiction:str,session:str,bill_type:str,number:str,db:Session=Depends(get_db)):
+    try:
+        return ingest_jurisdiction(db,jurisdiction,session,bill_type,number)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,str(e))
 
 @app.post("/monitor/federal/{congress}")
 def monitor(congress:int,limit:int=50,db:Session=Depends(get_db)):
@@ -49,7 +63,17 @@ def monitor(congress:int,limit:int=50,db:Session=Depends(get_db)):
 
 @app.get("/bills")
 def bills(db:Session=Depends(get_db)):
-    return [{"id":b.id,"congress":b.congress,"bill_type":b.bill_type,"bill_number":b.bill_number,"title":b.title,"latest_action":b.latest_action} for b in db.scalars(select(Bill).order_by(Bill.id.desc())).all()]
+    rows=db.scalars(select(Bill).order_by(Bill.id.desc())).all()
+    return [{
+        "id":b.id,
+        "jurisdiction":b.jurisdiction,
+        "session":(b.metadata_json or {}).get("jurisdiction_session") or str(b.congress),
+        "congress":b.congress,
+        "bill_type":b.bill_type,
+        "bill_number":b.bill_number,
+        "title":b.title,
+        "latest_action":b.latest_action,
+    } for b in rows]
 
 @app.get("/bills/{bill_id}/timeline")
 def timeline(bill_id:int,db:Session=Depends(get_db)):
@@ -302,7 +326,7 @@ def watch_create(payload:WatchCreate,db:Session=Depends(get_db)):
     bill_number=str(payload.bill_number) if payload.bill_number else None
     existing=db.scalar(select(WatchRule).where(
         WatchRule.target_type==payload.target_type,
-        WatchRule.jurisdiction=="US",
+        WatchRule.jurisdiction==payload.jurisdiction,
         WatchRule.congress==payload.congress,
         WatchRule.bill_type==bill_type,
         WatchRule.bill_number==bill_number,
@@ -317,13 +341,16 @@ def watch_create(payload:WatchCreate,db:Session=Depends(get_db)):
     watch=WatchRule(
         name=payload.name,
         target_type=payload.target_type,
-        jurisdiction="US",
+        jurisdiction=payload.jurisdiction,
         congress=payload.congress,
         bill_type=bill_type,
         bill_number=bill_number,
         auto_research=payload.auto_research,
         auto_report=payload.auto_report,
-        metadata_json=payload.metadata,
+        metadata_json={
+            **payload.metadata,
+            **({"session":payload.metadata.get("session")} if payload.metadata.get("session") else {}),
+        },
     )
     db.add(watch); db.commit(); db.refresh(watch)
     return _watch_view(watch)

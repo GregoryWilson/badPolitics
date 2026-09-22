@@ -120,6 +120,23 @@ Reports separate factual source records, deterministic review signals, correlati
 
 Monitoring records that a legislative source changed; it does not interpret the political significance of that change. Background polling is disabled by default. Set `WATCH_POLL_MINUTES` to a positive integer to enable periodic scans while the application is running.
 
+## MVP-10
+- normalized jurisdiction adapter contract
+- adapter registry with federal (US) and Texas (TX) implementations
+- unified ingestion pipeline across jurisdictions
+- Texas Legislature Online bulk FTP bill-history XML adapter
+- official Texas bill-text HTML retrieval
+- Texas actions, authors/coauthors, sponsors/cosponsors, subjects, and text versions
+- jurisdiction-aware bill watches
+- jurisdiction/session identity in API, metrics, reports, and dashboard
+- fixture-based Texas parser tests with no live-network CI dependency
+
+### Texas source semantics
+
+Texas Legislature Online asks legislative data services to use its bulk FTP files rather than data-mine the public website. The TX adapter follows that model: bill-history XML is read from `ftp.legis.state.tx.us`, while bill text uses the official TLO HTML URLs embedded in the XML. TLO states that bulk data is subject to revision and is not a substitute for official versions.
+
+Texas MVP-10 supports direct bill ingestion and bill-level watches. Session-wide Texas discovery is intentionally deferred until the adapter gains a bounded update-index reader.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -131,6 +148,8 @@ Open `http://localhost:8000/` for the dashboard or `http://localhost:8000/docs` 
 
 ## Endpoints
 ```
+GET  /jurisdictions
+POST /jurisdictions/{jurisdiction}/ingest/{session}/{bill_type}/{number}
 POST /ingest/federal/{congress}/{bill_type}/{number}
 POST /monitor/federal/{congress}?limit=50
 GET  /bills
@@ -164,3 +183,12 @@ GET  /watch-events
 ```
 
 The system extracts review signals and preserves evidence. It does not declare legislation corrupt or politically good/bad. AI explains evidence; source documents establish facts.
+
+
+### Texas example
+
+```
+POST /jurisdictions/TX/ingest/89R/HB/9
+```
+
+The legacy federal ingest endpoint remains supported for compatibility.

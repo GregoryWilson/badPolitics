@@ -127,7 +127,9 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
     report={
         "schema_version":"1.0",
         "bill":{
-            "id":bill.id,"jurisdiction":bill.jurisdiction,"congress":bill.congress,
+            "id":bill.id,"jurisdiction":bill.jurisdiction,
+            "session":(bill.metadata_json or {}).get("jurisdiction_session") or str(bill.congress),
+            "congress":bill.congress,
             "bill_type":bill.bill_type,"bill_number":bill.bill_number,"title":bill.title,
             "latest_action":bill.latest_action,
         },

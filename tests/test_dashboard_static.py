@@ -28,3 +28,10 @@ def test_dashboard_includes_watch_controls_and_change_feed():
     assert 'id="changeFeed"' in html
     assert 'api("/watch-events?limit=30")' in js
     assert 'api("/watches/run-all"' in js
+
+
+def test_dashboard_uses_jurisdiction_and_session_labels():
+    js=(ROOT/"app/static/app.js").read_text()
+    assert "b.jurisdiction" in js
+    assert "b.session" in js
+    assert "state.selected.jurisdiction" in js
