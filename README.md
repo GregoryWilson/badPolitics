@@ -184,6 +184,21 @@ Fiscal and document-comparison findings are review signals, not conclusions abou
 
 Provision lineage is a version-history fact: it records when a section appears, changes, or disappears across stored bill versions. Amendment attribution is deliberately conservative. Unless an authoritative source directly identifies an amendment as the source of a change, the application labels the relationship as a candidate association. Date proximity alone is not enough to create an amendment association. Descriptive text overlap can create a candidate lead, and temporal proximity can strengthen it; neither establishes authorship, intent, or responsibility.
 
+## MVP-14
+- explainable semantic scope analysis across bill sections
+- TF-IDF-style token weighting with no external ML dependency
+- comparison against stated bill scope from title and available subject metadata
+- comparison against the dominant vocabulary of peer sections
+- persisted scope findings with anchor similarity, peer similarity, confidence, and divergent terms
+- stronger `late_scope_outlier` classification when a later-added provision is also semantically distant
+- report integration and dashboard Scope Review tab
+
+### Scope-mismatch semantics
+
+A scope outlier means a section is unusually distant from both the bill's stated scope and the dominant subject matter of the other eligible sections. It is a review lead, not a conclusion that the provision is an improper rider. Omnibus legislation, cross-cutting implementation language, and specialized technical provisions can produce legitimate outliers.
+
+The analyzer requires at least four substantive sections and uses relative peer similarity so short or heterogeneous bills are less likely to be over-flagged.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -206,6 +221,8 @@ POST /bills/{bill_id}/fiscal-analysis
 GET  /bills/{bill_id}/fiscal-analysis
 POST /bills/{bill_id}/lineage
 GET  /bills/{bill_id}/lineage
+POST /bills/{bill_id}/scope-analysis
+GET  /bills/{bill_id}/scope-analysis
 GET  /bills/{bill_id}/timeline
 GET  /bills/{bill_id}/findings
 GET  /bills/{bill_id}/diff/latest
