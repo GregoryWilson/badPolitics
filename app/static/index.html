@@ -28,6 +28,20 @@
       <div id="billList" class="bill-list"></div>
       <div class="change-feed-header"><h2>Recent Changes</h2></div>
       <div id="changeFeed" class="change-feed"></div>
+      <div class="queue-header">
+        <h2>Investigation Queue</h2>
+        <select id="queueStatusFilter" aria-label="Queue status filter">
+          <option value="">Active & recent</option>
+          <option value="new">New</option>
+          <option value="reviewing">Reviewing</option>
+          <option value="needs_evidence">Needs evidence</option>
+          <option value="completed">Completed</option>
+          <option value="archived">Archived</option>
+          <option value="superseded">Superseded</option>
+        </select>
+      </div>
+      <div id="queueSummary" class="queue-summary"></div>
+      <div id="queueList" class="queue-list"></div>
     </aside>
 
     <section id="workspace">
@@ -62,6 +76,7 @@
           <button class="tab" data-tab="lineage">Lineage</button>
           <button class="tab" data-tab="scope">Scope Review</button>
           <button class="tab" data-tab="packets">Evidence Packets</button>
+          <button class="tab" data-tab="triage">Triage</button>
           <button class="tab" data-tab="graph">Evidence Graph</button>
           <button class="tab" data-tab="report">Report</button>
         </nav>
@@ -75,6 +90,7 @@
         <div id="lineage" class="tab-panel" hidden></div>
         <div id="scope" class="tab-panel" hidden></div>
         <div id="packets" class="tab-panel" hidden></div>
+        <div id="triage" class="tab-panel" hidden></div>
         <div id="graph" class="tab-panel" hidden></div>
         <div id="report" class="tab-panel" hidden></div>
       </div>
