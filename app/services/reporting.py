@@ -7,6 +7,7 @@ from app.models.entities import (
 )
 from app.services.metrics import bill_metrics
 from app.services.correlation import correlations_for_bill
+from app.services.fiscal_analysis import run_fiscal_analysis
 
 FINDING_LABELS={
     "money":"Explicit monetary amount",
@@ -114,6 +115,28 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
             "caveat":"Correlation establishes record linkage only; it does not establish influence, causation, conflict of interest, or wrongdoing.",
         })
 
+    fiscal_analysis=run_fiscal_analysis(db,bill_id)
+    for f in fiscal_analysis.get("findings",[]):
+        findings.append({
+            "category":f["category"],
+            "title":f["statement"],
+            "statement":f["statement"],
+            "section":None,
+            "confidence":round(float(f["confidence"]),2),
+            "evidence":f["evidence"],
+            "sources":[_source(
+                "comparative_fiscal_finding",
+                f["id"],
+                f.get("source_url"),
+                {
+                    "source_kind":f.get("source_kind"),
+                    "document_id":f.get("document_id"),
+                    "document_description":f.get("document_description"),
+                },
+            )],
+            "caveat":"This is a deterministic fiscal/document comparison signal. It does not establish concealment, intent, impropriety, or inaccurate official analysis.",
+        })
+
     supporting_documents=db.scalars(
         select(LegislativeDocument)
         .where(LegislativeDocument.bill_id==bill_id)
@@ -165,6 +188,11 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
         },
         "findings":findings,
         "supporting_documents":document_rows,
+        "fiscal_analysis":{
+            "finding_count":fiscal_analysis.get("finding_count",0),
+            "by_category":fiscal_analysis.get("by_category",{}),
+            "interpretation_note":fiscal_analysis.get("interpretation_note"),
+        },
         "research":research_summary,
         "research_steps":research_steps,
         "interpretation_note":"Findings organize source-backed facts and review signals. They are not a political rating, corruption determination, motive inference, or recommendation.",
