@@ -68,3 +68,12 @@ def test_texas_xml_normalization(monkeypatch):
     assert bill.actions[0].date=="2025-01-02"
     assert {s.name for s in bill.sponsors}=={"Smith","Jones","Garcia","Brown","White"}
     assert bill.metadata["subjects"]==["Taxation"]
+
+
+def test_texas_called_session_codes():
+    adapter=TexasTLOAdapter()
+    assert adapter._session("892")==("892",89,"89S2")
+    assert adapter._session("89S2")==("892",89,"89S2")
+    assert adapter._history_path("89S2","HB","8")==(
+        "/bills/892/billhistory/house_bills/HB00001_HB00099/HB00008.xml"
+    )
