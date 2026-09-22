@@ -46,7 +46,7 @@ def findings(bill_id:int,db:Session=Depends(get_db)):
 
 @app.get("/bills/{bill_id}/diff/latest")
 def diff_latest(bill_id:int,db:Session=Depends(get_db)):
-    versions=db.scalars(select(BillVersion).where(BillVersion.bill_id==bill_id).order_by(BillVersion.id.desc())).all()
+    versions=db.scalars(select(BillVersion).where(BillVersion.bill_id==bill_id).order_by(BillVersion.issued_on.desc(),BillVersion.id.desc())).all()
     if len(versions)<2: raise HTTPException(404,"Need at least two versions")
     new,old=versions[0],versions[1]
     return {"old":old.version_code,"new":new.version_code,"summary":summary(old.text,new.text),"diff":unified(old.text,new.text,old.version_code,new.version_code)[:200000]}
