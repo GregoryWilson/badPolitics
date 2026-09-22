@@ -242,6 +242,7 @@ def audit_narrative_citations(narrative:str,evidence_entries:list[dict]):
         "valid_ids":sorted(valid_ids),
         "used_ids":sorted(used_ids),
         "invalid_ids":sorted(used_ids-valid_ids),
+        "has_citations":bool(used_ids),
     }
 
 def build_section_packet(
@@ -378,22 +379,27 @@ def build_section_packet(
                 "Narrative rejected because it cited evidence IDs not present in the packet: "
                 +", ".join(invalid)
             )
+        elif not audit["has_citations"]:
+            row.narrative="Narrative rejected because it did not cite any packet evidence IDs."
         else:
             row.narrative=narrative
         row.llm_model=settings.llm_model
     db.commit(); db.refresh(row)
     return packet_view(row)
 
-def build_bill_packets(db,bill_id:int,generate_narrative:bool=False,limit:int=25):
+def build_bill_packets(
+    db,bill_id:int,generate_narrative:bool=False,limit:int=25,prepare:bool=True
+):
     bill=db.get(Bill,bill_id)
     if not bill:
         raise ValueError("Bill not found")
     version=_latest_version(db,bill_id)
     if not version:
         raise ValueError("Bill has no stored text version")
-    build_lineage(db,bill_id)
-    run_fiscal_analysis(db,bill_id)
-    run_scope_analysis(db,bill_id)
+    if prepare:
+        build_lineage(db,bill_id)
+        run_fiscal_analysis(db,bill_id)
+        run_scope_analysis(db,bill_id)
     section_ids=sorted(noteworthy_section_ids(db,bill_id,version.id))[:max(1,min(limit,100))]
     packets=[
         build_section_packet(
