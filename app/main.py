@@ -5,7 +5,7 @@ from pathlib import Path
 import asyncio
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from app.db.session import engine,get_db,SessionLocal
+from app.db.session import get_db,SessionLocal
 from app.db.migrate import assert_schema_current
 from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity,ExternalEvidenceRecord,WatchRule,LegislativeDocument
 from app.services.ingest import ingest_federal,ingest_jurisdiction,discover_jurisdiction
