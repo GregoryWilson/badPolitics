@@ -5,8 +5,8 @@ from pathlib import Path
 import asyncio
 from sqlalchemy.orm import Session
 from sqlalchemy import select
-from app.db.base import Base
 from app.db.session import engine,get_db,SessionLocal
+from app.db.migrate import assert_schema_current
 from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity,ExternalEvidenceRecord,WatchRule,LegislativeDocument
 from app.services.ingest import ingest_federal,ingest_jurisdiction,discover_jurisdiction
 from app.services.monitor import poll_recent_bills
@@ -32,8 +32,7 @@ from app.services.watch import run_watch,run_active_watches,list_events,get_scan
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
-Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="1.7.0")
+app=FastAPI(title="LegisWatch",version="1.8.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -42,7 +41,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"1.7.0","watch_poll_minutes":settings.watch_poll_minutes}
+def health(): return {"ok":True,"version":"1.8.0","watch_poll_minutes":settings.watch_poll_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -466,6 +465,10 @@ def _run_all_watches_background():
         return run_active_watches(db)
     finally:
         db.close()
+
+@app.on_event("startup")
+def verify_database_schema():
+    assert_schema_current()
 
 @app.on_event("startup")
 async def start_watch_loop():
