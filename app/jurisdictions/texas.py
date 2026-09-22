@@ -152,6 +152,15 @@ class TexasTLOAdapter:
             seen.add(key)
             found.append(parsed)
             if len(found)>=limit:
+                return found
+        for match in re.finditer(r"\b(HB|HCR|HJR|HR|SB|SCR|SJR|SR)\s*0*(\d{1,5})\b",text,re.I):
+            kind,number=match.groups()
+            key=(kind.upper(),str(int(number)))
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append({"bill_type":key[0],"number":key[1],"filename":None})
+            if len(found)>=limit:
                 break
         return found
 
@@ -175,20 +184,26 @@ class TexasTLOAdapter:
         ):
             for version in root.iterfind(path):
                 desc=(version.findtext("versionDescription") or "").strip() or None
-                url=(version.findtext("WebHTMLURL") or "").strip()
-                if not url:
+                html_url=(version.findtext("WebHTMLURL") or "").strip()
+                pdf_url=(version.findtext("WebPDFURL") or "").strip()
+                if not html_url and not pdf_url:
                     continue
-                try:
-                    text,source_url=self._download_text(url)
-                except Exception:
-                    text=None
-                    source_url=url.replace("http://capitol.texas.gov/","https://capitol.texas.gov/")
+                text=None
+                if html_url:
+                    try:
+                        text,source_url=self._download_text(html_url)
+                    except Exception:
+                        source_url=html_url.replace("http://capitol.texas.gov/","https://capitol.texas.gov/")
+                    fmt="html"
+                else:
+                    source_url=pdf_url.replace("http://capitol.texas.gov/","https://capitol.texas.gov/")
+                    fmt="pdf"
                 documents.append(NormalizedDocument(
                     document_type=document_type,
                     description=desc,
                     source_url=source_url,
                     text=text,
-                    format="html",
+                    format=fmt,
                     metadata={"texas_version_description":desc},
                 ))
         return documents
