@@ -164,3 +164,25 @@ class CorrelationFinding(Base):
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     __table_args__=(UniqueConstraint("bill_id","legislative_entity_id","matched_entity_id","match_basis"),)
+
+
+class ResearchRun(Base):
+    __tablename__="research_runs"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    status:Mapped[str]=mapped_column(String(32),default="running")
+    started_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    completed_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    summary_json:Mapped[dict]=mapped_column(JSON,default=dict)
+
+class ResearchStep(Base):
+    __tablename__="research_steps"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    run_id:Mapped[int]=mapped_column(ForeignKey("research_runs.id",ondelete="CASCADE"))
+    entity_id:Mapped[int|None]=mapped_column(ForeignKey("evidence_entities.id",ondelete="CASCADE"),nullable=True)
+    source_system:Mapped[str]=mapped_column(String(64))
+    action:Mapped[str]=mapped_column(String(64))
+    status:Mapped[str]=mapped_column(String(32))
+    reason:Mapped[str]=mapped_column(Text)
+    result_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)

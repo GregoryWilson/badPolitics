@@ -67,6 +67,19 @@ LDA.gov permits anonymous API use at a lower rate limit. Its terms require downs
 
 Correlation means two records appear to refer to the same entity based on a documented identifier, exact normalized name, or explicitly stored alias. A correlation does not establish influence, causation, conflict of interest, or wrongdoing.
 
+## MVP-6
+- persisted research runs with step-level audit trail
+- deterministic source selection by entity type and verified identifiers
+- verified FEC candidate-ID research
+- exact-name LDA client research
+- explicit completed/no-match/skipped/failed outcomes
+- automatic post-import correlation
+- reproducible investigation packets
+
+### Research orchestration semantics
+
+Automatic research is deliberately conservative. A person is queried against FEC only when a verified FEC candidate ID is already attached. An organization is queried against LDA only when it was explicitly named in bill text, and only exact normalized client-name matches are retained. Ambiguous cases are skipped rather than guessed.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -97,6 +110,8 @@ POST /evidence/lda/client
 GET  /evidence/records
 POST /bills/{bill_id}/correlate
 GET  /bills/{bill_id}/correlations
+POST /bills/{bill_id}/research
+GET  /research/{run_id}
 ```
 
 The system extracts review signals and preserves evidence. It does not declare legislation corrupt or politically good/bad. AI explains evidence; source documents establish facts.
