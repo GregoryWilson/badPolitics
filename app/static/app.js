@@ -141,7 +141,7 @@ async function selectBill(id){
   $("latestAction").textContent=bill.latest_action||"No latest action recorded.";
   $("report").innerHTML='<div class="notice">Build an investigation report to populate this tab.</div>';
   status("Loading bill details…");
-  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadDiff(),loadGraph()]);
+  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadFiscal(),loadDiff(),loadGraph()]);
   status("");
 }
 async function loadMetrics(){
@@ -186,6 +186,26 @@ async function loadDocuments(){
       <div class="meta"><span class="badge">${esc(d.format||"unknown")}</span><span>${esc(d.description||"")}</span><span>${d.has_text?"Text captured":"Source link only"}</span></div>
       ${safeUrl(d.source_url)?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(safeUrl(d.source_url))}">Official source</a>`:""}
     </article>`).join(""):'<div class="notice">No supporting documents stored for this bill.</div>';
+}
+
+async function loadFiscal(){
+  let result;
+  try{
+    result=await api(`/bills/${state.selected.id}/fiscal-analysis`,{method:"POST"});
+  }catch(e){
+    $("fiscal").innerHTML='<div class="notice">Fiscal comparison analysis is unavailable.</div>';
+    return;
+  }
+  $("fiscal").innerHTML=`
+    <div class="notice">${esc(result.interpretation_note)}</div>
+    ${result.findings.length?result.findings.map(f=>`
+      <article class="card">
+        <h3>${esc(f.statement)}</h3>
+        <div class="meta"><span class="badge">${esc(f.category)}</span><span>Confidence ${esc(Number(f.confidence).toFixed(2))}</span><span>${esc((f.source_kind||"").replaceAll("_"," "))}</span></div>
+        <div class="evidence">${esc(f.evidence)}</div>
+        ${safeUrl(f.source_url)?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(safeUrl(f.source_url))}">Source</a>`:""}
+      </article>`).join(""):'<div class="notice">No deterministic fiscal comparison signals found.</div>'}
+  `;
 }
 
 async function loadDiff(){
