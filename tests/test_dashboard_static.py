@@ -44,3 +44,12 @@ def test_dashboard_supports_non_federal_session_watches_and_documents():
     assert 'data-tab="documents"' in html
     assert 'api(`/bills/${state.selected.id}/documents`)' in js
     assert 'target_type:"session"' in js
+
+
+def test_dashboard_supports_fiscal_review():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'data-tab="fiscal"' in html
+    assert 'id="fiscal"' in html
+    assert '/fiscal-analysis' in js
+    assert "Fiscal Review" in html
