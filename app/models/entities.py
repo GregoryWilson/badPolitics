@@ -254,3 +254,19 @@ class LegislativeDocument(Base):
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     bill=relationship("Bill",back_populates="documents")
     __table_args__=(UniqueConstraint("bill_id","document_type","source_url"),)
+
+
+class ComparativeFinding(Base):
+    __tablename__="comparative_findings"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    document_id:Mapped[int|None]=mapped_column(ForeignKey("legislative_documents.id",ondelete="CASCADE"),nullable=True)
+    category:Mapped[str]=mapped_column(String(64))
+    confidence:Mapped[float]=mapped_column(Float,default=0)
+    statement:Mapped[str]=mapped_column(Text)
+    evidence:Mapped[str]=mapped_column(Text)
+    source_kind:Mapped[str]=mapped_column(String(32),default="bill_text")
+    evidence_hash:Mapped[str]=mapped_column(String(64))
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(UniqueConstraint("bill_id","document_id","category","evidence_hash"),)
