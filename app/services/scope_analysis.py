@@ -126,13 +126,18 @@ def analyze_scope_sections(title,metadata,sections):
         distance=max(0.0,1.0-peer)
         anchor_distance=(1.0-anchor) if anchor is not None else 0.5
         confidence=min(0.95,0.55+(distance*0.20)+(anchor_distance*0.15))
+        statement=(
+            "Section subject matter is unusually distant from both the stated bill scope and neighboring sections."
+            if anchor is not None
+            else "Section subject matter is unusually distant from the dominant subject matter of neighboring sections; stated-scope metadata was unavailable."
+        )
         findings.append({
             "section":section,
             "category":"scope_outlier",
             "confidence":round(confidence,4),
             "anchor_similarity":round(anchor,4) if anchor is not None else None,
             "peer_similarity":round(peer,4),
-            "statement":"Section subject matter is unusually distant from both the stated bill scope and neighboring sections.",
+            "statement":statement,
             "evidence":"Divergent terms: "+(", ".join(divergent) if divergent else "none identified")+".",
             "metadata":{
                 "divergent_terms":divergent,
