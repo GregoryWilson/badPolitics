@@ -108,7 +108,8 @@ def scan_bill_watch(db,watch,scan):
             {"title":bill.title},
         )
         if row: events.append(row)
-    events.extend(_diff_events(db,watch,scan,bill,before,after))
+    if before["exists"]:
+        events.extend(_diff_events(db,watch,scan,bill,before,after))
     refreshed=_refresh_outputs(db,watch,bill,events)
     return {
         "bill_id":bill.id if bill else None,
