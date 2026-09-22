@@ -53,3 +53,12 @@ def test_dashboard_supports_fiscal_review():
     assert 'id="fiscal"' in html
     assert '/fiscal-analysis' in js
     assert "Fiscal Review" in html
+
+
+def test_dashboard_supports_provision_lineage():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'data-tab="lineage"' in html
+    assert 'id="lineage"' in html
+    assert '/lineage' in js
+    assert "Candidate amendment associations" in js

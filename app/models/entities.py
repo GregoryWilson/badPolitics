@@ -270,3 +270,32 @@ class ComparativeFinding(Base):
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     __table_args__=(UniqueConstraint("bill_id","document_id","category","evidence_hash"),)
+
+
+class ProvisionLineage(Base):
+    __tablename__="provision_lineage"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    section_number:Mapped[str]=mapped_column(String(64))
+    from_version_id:Mapped[int|None]=mapped_column(ForeignKey("bill_versions.id",ondelete="CASCADE"),nullable=True)
+    to_version_id:Mapped[int]=mapped_column(ForeignKey("bill_versions.id",ondelete="CASCADE"))
+    event_type:Mapped[str]=mapped_column(String(32))
+    similarity:Mapped[float|None]=mapped_column(Float,nullable=True)
+    old_text:Mapped[str|None]=mapped_column(Text,nullable=True)
+    new_text:Mapped[str|None]=mapped_column(Text,nullable=True)
+    diff_text:Mapped[str|None]=mapped_column(Text,nullable=True)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(UniqueConstraint("bill_id","section_number","from_version_id","to_version_id","event_type"),)
+
+class AmendmentAttribution(Base):
+    __tablename__="amendment_attributions"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    lineage_id:Mapped[int]=mapped_column(ForeignKey("provision_lineage.id",ondelete="CASCADE"))
+    amendment_id:Mapped[int]=mapped_column(ForeignKey("amendments.id",ondelete="CASCADE"))
+    attribution_type:Mapped[str]=mapped_column(String(32),default="candidate")
+    confidence:Mapped[float]=mapped_column(Float,default=0)
+    evidence:Mapped[str]=mapped_column(Text)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(UniqueConstraint("lineage_id","amendment_id","attribution_type"),)

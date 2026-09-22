@@ -22,13 +22,14 @@ from app.schemas.research import ResearchRunRequest
 from app.services.research import run_bill_research,research_packet
 from app.services.reporting import build_report,get_report
 from app.services.fiscal_analysis import run_fiscal_analysis,fiscal_analysis_result
+from app.services.lineage import build_lineage,lineage_result
 from app.schemas.watch import WatchCreate,WatchUpdate
 from app.services.watch import run_watch,run_active_watches,list_events,get_scan
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="1.3.0")
+app=FastAPI(title="LegisWatch",version="1.4.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -37,7 +38,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"1.3.0","watch_poll_minutes":settings.watch_poll_minutes}
+def health(): return {"ok":True,"version":"1.4.0","watch_poll_minutes":settings.watch_poll_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -313,6 +314,20 @@ def fiscal_analyze(bill_id:int,db:Session=Depends(get_db)):
 def fiscal_get(bill_id:int,db:Session=Depends(get_db)):
     try:
         return fiscal_analysis_result(db,bill_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+
+@app.post("/bills/{bill_id}/lineage")
+def lineage_build(bill_id:int,db:Session=Depends(get_db)):
+    try:
+        return build_lineage(db,bill_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+
+@app.get("/bills/{bill_id}/lineage")
+def lineage_get(bill_id:int,db:Session=Depends(get_db)):
+    try:
+        return lineage_result(db,bill_id)
     except ValueError as e:
         raise HTTPException(404,str(e))
 
