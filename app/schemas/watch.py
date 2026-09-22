@@ -12,8 +12,11 @@ class WatchCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_target(self):
+        self.jurisdiction=self.jurisdiction.upper()
         if self.target_type not in {"bill","congress"}:
             raise ValueError("target_type must be bill or congress")
+        if self.target_type=="congress" and self.jurisdiction!="US":
+            raise ValueError("congress watches currently apply only to US federal legislation")
         if self.target_type=="bill" and not (self.congress and self.bill_type and self.bill_number):
             raise ValueError("bill watches require congress, bill_type, and bill_number")
         if self.target_type=="congress" and not self.congress:
