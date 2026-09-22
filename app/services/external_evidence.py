@@ -60,18 +60,21 @@ def import_fec_receipts(db, committee_entity_id:int, committee_id:str, contribut
         source_url="https://www.fec.gov/data/receipts/"
         store_record(db,"fec","schedule_a_receipt",transaction_id,item,observed_on=item.get("contribution_receipt_date"),source_url=source_url)
         amount=item.get("contribution_receipt_amount"); date=item.get("contribution_receipt_date")
-        evidence=f"FEC Schedule A reports a receipt from {contributor} to committee {committee_id}"
-        if amount is not None: evidence += f" of ${amount}"
-        if date: evidence += f" on {date}"
-        evidence += "."
-        rel=create_relationship(db,contributor_entity.id,committee.id,"fec_reported_receipt",evidence=evidence,source_url=source_url,observed_on=date,confidence=1.0,source_system="fec",metadata={"amount":amount,"committee_id":committee_id,"record_id":transaction_id})
+        rel=create_relationship(db,contributor_entity.id,committee.id,"fec_reported_receipt",evidence=f"FEC Schedule A contains reported receipt records from {contributor} to committee {committee_id}.",source_url=source_url,observed_on=date,confidence=1.0,source_system="fec",metadata={"committee_id":committee_id,"record_ids":[transaction_id]})
+        metadata=dict(rel.metadata_json or {})
+        record_ids=list(metadata.get("record_ids") or [])
+        if transaction_id not in record_ids:
+            record_ids.append(transaction_id)
+        metadata["record_ids"]=record_ids
+        metadata["record_count"]=len(record_ids)
+        metadata["committee_id"]=committee_id
+        rel.metadata_json=metadata
         imported.append({"record_id":transaction_id,"contributor_entity_id":contributor_entity.id,"relationship_id":rel.id,"amount":amount,"date":date})
     db.commit()
     return {"committee_entity_id":committee.id,"committee_id":committee_id,"receipt_count":len(imported),"receipts":imported}
 
 def import_lda_client(db, client_name:str, filing_year:int|None=None, max_records:int=100):
-    payload=LDAClient().filings(client_name=client_name,filing_year=filing_year)
-    results=payload.get("results",[])[:max_records]
+    results=LDAClient().filings_all(max_records=max_records,client_name=client_name,filing_year=filing_year)
     imported=[]
     for i,item in enumerate(results):
         client_data=item.get("client") or {}
