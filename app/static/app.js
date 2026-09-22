@@ -115,7 +115,7 @@ async function selectBill(id){
   $("latestAction").textContent=bill.latest_action||"No latest action recorded.";
   $("report").innerHTML='<div class="notice">Build an investigation report to populate this tab.</div>';
   status("Loading bill details…");
-  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDiff(),loadGraph()]);
+  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadDiff(),loadGraph()]);
   status("");
 }
 async function loadMetrics(){
@@ -152,6 +152,16 @@ async function loadTimeline(){
     ${t.amendments.map(a=>`<div class="card"><strong>${esc(a.type.toUpperCase())} ${esc(a.number)}</strong><div>${esc(a.description||a.latest_action||"")}</div></div>`).join("")||'<div class="notice">No amendment records.</div>'}
   `;
 }
+async function loadDocuments(){
+  const rows=await api(`/bills/${state.selected.id}/documents`);
+  $("documents").innerHTML=rows.length?rows.map(d=>`
+    <article class="card">
+      <h3>${esc((d.document_type||"document").replaceAll("_"," "))}</h3>
+      <div class="meta"><span class="badge">${esc(d.format||"unknown")}</span><span>${esc(d.description||"")}</span><span>${d.has_text?"Text captured":"Source link only"}</span></div>
+      ${safeUrl(d.source_url)?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(safeUrl(d.source_url))}">Official source</a>`:""}
+    </article>`).join(""):'<div class="notice">No supporting documents stored for this bill.</div>';
+}
+
 async function loadDiff(){
   try{
     const d=await api(`/bills/${state.selected.id}/diff/latest`);
@@ -198,7 +208,7 @@ async function buildReport(){
 function renderReport(r){
   $("report").innerHTML=`
     <div class="notice">${esc(r.interpretation_note)}</div>
-    <div class="card"><strong>Report ${esc(r.report_id)}</strong><div class="meta"><span>${esc(r.finding_summary.total)} findings</span><span>Version ${esc(r.version.code||"n/a")}</span><span>${esc(r.research?.status||"No research run")}</span></div></div>
+    <div class="card"><strong>Report ${esc(r.report_id)}</strong><div class="meta"><span>${esc(r.finding_summary.total)} findings</span><span>${esc((r.supporting_documents||[]).length)} supporting documents</span><span>Version ${esc(r.version.code||"n/a")}</span><span>${esc(r.research?.status||"No research run")}</span></div></div>
     ${r.findings.map(f=>`<article class="card">
       <h3>${esc(f.title)}</h3>
       <div class="meta"><span class="badge">${esc(f.category)}</span><span>Confidence ${esc(Number(f.confidence).toFixed(2))}</span>${f.section?`<span>Section ${esc(f.section)}</span>`:""}</div>
