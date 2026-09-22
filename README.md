@@ -106,6 +106,20 @@ Reports separate factual source records, deterministic review signals, correlati
 - one-click investigation report generation
 - source-link protocol hardening
 
+## MVP-9
+- persisted bill and Congress watch rules
+- scan history with completed/failed status
+- deduplicated change events for new bill versions, actions, amendments, and newly discovered bills
+- optional automatic research/report refresh when watched bills change
+- manual scan-all endpoint
+- opt-in in-process polling loop via `WATCH_POLL_MINUTES`
+- dashboard Watch Bill / Scan Watches controls
+- recent-change feed with bill drill-down
+
+### Monitoring semantics
+
+Monitoring records that a legislative source changed; it does not interpret the political significance of that change. Background polling is disabled by default. Set `WATCH_POLL_MINUTES` to a positive integer to enable periodic scans while the application is running.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -140,6 +154,13 @@ POST /bills/{bill_id}/research
 GET  /research/{run_id}
 POST /bills/{bill_id}/reports
 GET  /reports/{report_id}
+POST /watches
+GET  /watches
+PATCH /watches/{watch_id}
+POST /watches/{watch_id}/scan
+POST /watches/scan-all
+GET  /watch-scans/{scan_id}
+GET  /watch-events
 ```
 
 The system extracts review signals and preserves evidence. It does not declare legislation corrupt or politically good/bad. AI explains evidence; source documents establish facts.
