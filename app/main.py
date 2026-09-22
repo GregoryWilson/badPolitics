@@ -335,7 +335,7 @@ def watch_scan(watch_id:int,db:Session=Depends(get_db)):
     except ValueError as e: raise HTTPException(404,str(e))
     except Exception as e: raise HTTPException(502,f"Watch scan failed: {e}")
 
-@app.post("/watches/scan-all")
+@app.post("/watches/run-all")
 def watch_scan_all(db:Session=Depends(get_db)):
     return {"results":run_active_watches(db)}
 
