@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.base import Base
 from app.db.session import engine,get_db
-from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity
+from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity,ExternalEvidenceRecord
 from app.services.ingest import ingest_federal
 from app.services.monitor import poll_recent_bills
 from app.services.diffing import summary,unified
@@ -11,12 +11,14 @@ from app.services.llm import deep_dive
 from app.services.graph import sync_bill_graph,graph_for_bill,relationships_for_bill,create_relationship,get_or_create_entity
 from app.schemas.graph import EntityCreate,RelationshipCreate
 from app.services.metrics import bill_metrics
+from app.schemas.evidence import FECCandidateImport,FECReceiptImport,LDAClientImport
+from app.services.external_evidence import import_fec_candidate,import_fec_receipts,import_lda_client
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.4.0")
+app=FastAPI(title="LegisWatch",version="0.5.0")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.4.0"}
+def health(): return {"ok":True,"version":"0.5.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -68,10 +70,10 @@ def graph_sync(bill_id:int,db:Session=Depends(get_db)):
     except ValueError as e: raise HTTPException(404,str(e))
 
 @app.get("/bills/{bill_id}/graph")
-def graph_get(bill_id:int,db:Session=Depends(get_db)):
+def graph_get(bill_id:int,depth:int=2,db:Session=Depends(get_db)):
     if not db.get(Bill,bill_id): raise HTTPException(404,"Bill not found")
     graph=graph_for_bill(db,bill_id)
-    graph["relationships"]=relationships_for_bill(db,bill_id)
+    graph["relationships"]=relationships_for_bill(db,bill_id,depth)
     return graph
 
 @app.post("/graph/relationships")
@@ -143,3 +145,47 @@ def metrics_get(bill_id:int,db:Session=Depends(get_db)):
         return bill_metrics(db,bill_id)
     except ValueError as e:
         raise HTTPException(404,str(e))
+
+
+@app.post("/evidence/fec/candidate")
+def evidence_fec_candidate(payload:FECCandidateImport,db:Session=Depends(get_db)):
+    try:
+        return import_fec_candidate(db,payload.person_entity_id,payload.candidate_id,payload.cycle)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,f"FEC import failed: {e}")
+
+@app.post("/evidence/fec/receipts")
+def evidence_fec_receipts(payload:FECReceiptImport,db:Session=Depends(get_db)):
+    try:
+        return import_fec_receipts(db,payload.committee_entity_id,payload.committee_id,payload.contributor_name,payload.min_date,payload.max_date)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,f"FEC receipt import failed: {e}")
+
+@app.post("/evidence/lda/client")
+def evidence_lda_client(payload:LDAClientImport,db:Session=Depends(get_db)):
+    try:
+        return import_lda_client(db,payload.client_name,payload.filing_year,payload.max_records)
+    except Exception as e:
+        raise HTTPException(502,f"LDA import failed: {e}")
+
+@app.get("/evidence/records")
+def evidence_records(source_system:str|None=None,record_type:str|None=None,limit:int=100,db:Session=Depends(get_db)):
+    q=select(ExternalEvidenceRecord).order_by(ExternalEvidenceRecord.id.desc()).limit(max(1,min(limit,500)))
+    if source_system:
+        q=q.where(ExternalEvidenceRecord.source_system==source_system)
+    if record_type:
+        q=q.where(ExternalEvidenceRecord.record_type==record_type)
+    rows=db.scalars(q).all()
+    return [{
+        "id":r.id,
+        "source_system":r.source_system,
+        "record_type":r.record_type,
+        "external_id":r.external_id,
+        "observed_on":r.observed_on,
+        "source_url":r.source_url,
+        "raw":r.raw_json,
+    } for r in rows]
