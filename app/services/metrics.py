@@ -24,7 +24,7 @@ def bill_metrics(db, bill_id: int):
         raise ValueError("Bill not found")
 
     versions=db.scalars(
-        select(BillVersion).where(BillVersion.bill_id==bill_id).order_by(BillVersion.id.asc())
+        select(BillVersion).where(BillVersion.bill_id==bill_id).order_by(BillVersion.issued_on.asc(),BillVersion.id.asc())
     ).all()
     latest=versions[-1] if versions else None
 
@@ -79,7 +79,7 @@ def bill_metrics(db, bill_id: int):
         "finding_counts":dict(sorted(counts.items())),
         "money":{
             "explicit_amount_mentions":len(explicit_amounts),
-            "explicit_amount_sum":sum(explicit_amounts),
+            "sum_of_explicit_amount_mentions":sum(explicit_amounts),
             "largest_explicit_amount":max(explicit_amounts) if explicit_amounts else 0,
             "unspecified_spending_mentions":counts.get("unspecified_spending",0),
         },
