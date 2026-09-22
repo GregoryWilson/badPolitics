@@ -8,6 +8,7 @@ from app.models.entities import (
 from app.services.metrics import bill_metrics
 from app.services.correlation import correlations_for_bill
 from app.services.fiscal_analysis import run_fiscal_analysis
+from app.services.lineage import build_lineage
 
 FINDING_LABELS={
     "money":"Explicit monetary amount",
@@ -116,6 +117,7 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
         })
 
     fiscal_analysis=run_fiscal_analysis(db,bill_id)
+    lineage=build_lineage(db,bill_id)
     for f in fiscal_analysis.get("findings",[]):
         findings.append({
             "category":f["category"],
@@ -135,6 +137,42 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
                 },
             )],
             "caveat":"This is a deterministic fiscal/document comparison signal. It does not establish concealment, intent, impropriety, or inaccurate official analysis.",
+        })
+
+    later_lineage=[
+        event for event in lineage.get("events",[])
+        if event["from_version"]["id"] is not None and event["event_type"] in {"introduced","modified"}
+    ]
+    for event in later_lineage:
+        candidates=event.get("candidate_amendments") or []
+        candidate_text=""
+        if candidates:
+            top=candidates[0]
+            candidate_text=(
+                f' Candidate amendment association: {top["amendment_type"].upper()} '
+                f'{top["amendment_number"]} ({top["confidence"]:.2f} confidence).'
+            )
+        findings.append({
+            "category":"provision_lineage",
+            "title":"Provision changed after initial bill text",
+            "statement":f'Section {event["section_number"]} was {event["event_type"]} in version {event["to_version"]["code"]}.',
+            "section":event["section_number"],
+            "confidence":0.90 if event["event_type"]=="introduced" else 0.78,
+            "evidence":(
+                f'From {event["from_version"]["code"]} to {event["to_version"]["code"]}.'
+                + candidate_text
+            ),
+            "sources":[_source(
+                "provision_lineage",
+                event["id"],
+                None,
+                {
+                    "from_version":event["from_version"],
+                    "to_version":event["to_version"],
+                    "candidate_amendments":candidates,
+                },
+            )],
+            "caveat":"A later-added or modified provision is a version-history fact. Candidate amendment associations are leads, not proof that an amendment caused the change.",
         })
 
     supporting_documents=db.scalars(
@@ -192,6 +230,11 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
             "finding_count":fiscal_analysis.get("finding_count",0),
             "by_category":fiscal_analysis.get("by_category",{}),
             "interpretation_note":fiscal_analysis.get("interpretation_note"),
+        },
+        "lineage":{
+            "event_count":lineage.get("event_count",0),
+            "later_change_count":len(later_lineage),
+            "interpretation_note":lineage.get("interpretation_note"),
         },
         "research":research_summary,
         "research_steps":research_steps,
