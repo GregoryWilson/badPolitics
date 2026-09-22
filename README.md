@@ -199,6 +199,26 @@ A scope outlier means a section is unusually distant from both the bill's stated
 
 The analyzer requires at least four substantive sections and uses relative peer similarity so short or heterogeneous bills are less likely to be over-flagged.
 
+## MVP-15
+- persisted provision-level cross-source evidence packets
+- section text and deterministic findings with evidence IDs
+- scope-outlier and provision-lineage context
+- candidate amendment associations
+- named entities / beneficiary classes tied to the section
+- external FEC/LDA correlation and relationship context tied to section entities
+- bill-level fiscal/document signals clearly marked as non-section-specific context
+- stable packet hashing that ignores volatile internal database IDs
+- opt-in local-LLM synthesis constrained to packet evidence
+- citation audit rejects unknown evidence IDs and uncited narratives
+- investigation-report packet references
+- dashboard Evidence Packets tab with explicit Generate Local Synthesis action
+
+### Evidence-packet synthesis semantics
+
+Evidence packets are reproducible bundles of source-backed records and deterministic review signals. Packet creation does not require an LLM. Local synthesis is opt-in and receives only the packet evidence. The prompt prohibits motive, causation, authorship, corruption, or conflict conclusions unless an evidence record explicitly establishes the fact. Candidate amendment associations and external correlations remain leads rather than proof.
+
+Bill-level fiscal context is labeled as bill-level and must not be attributed to a specific section merely because it appears in that section's packet.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -223,6 +243,10 @@ POST /bills/{bill_id}/lineage
 GET  /bills/{bill_id}/lineage
 POST /bills/{bill_id}/scope-analysis
 GET  /bills/{bill_id}/scope-analysis
+POST /bills/{bill_id}/evidence-packets
+GET  /bills/{bill_id}/evidence-packets
+POST /sections/{section_id}/evidence-packet
+GET  /evidence-packets/{packet_id}
 GET  /bills/{bill_id}/timeline
 GET  /bills/{bill_id}/findings
 GET  /bills/{bill_id}/diff/latest
