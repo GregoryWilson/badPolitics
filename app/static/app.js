@@ -2,6 +2,12 @@ const state={bills:[],selected:null,report:null};
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
+const safeUrl=v=>{
+  try{
+    const u=new URL(String(v||""),window.location.origin);
+    return (u.protocol==="http:"||u.protocol==="https:")?u.href:"";
+  }catch{return ""}
+};
 const fmtMoney=n=>{
   const v=Number(n||0);
   if(v>=1e9)return "$"+(v/1e9).toFixed(2)+"B";
@@ -103,7 +109,7 @@ async function loadGraph(){
     <h3 class="section-title">Bill-linked entities</h3>
     ${g.nodes.map(n=>`<div class="card"><strong>${esc(n.name)}</strong><div class="meta"><span class="badge">${esc(n.type)}</span></div></div>`).join("")||'<div class="notice">No graph entities yet.</div>'}
     <h3 class="section-title">Source-backed relationships</h3>
-    ${g.relationships.map(r=>`<div class="card"><strong>${esc(r.source_entity.name)} → ${esc(r.relation_type)} → ${esc(r.target_entity.name)}</strong><div class="meta"><span>${esc(r.source_system)}</span><span>${esc(r.observed_on||"")}</span></div><div class="evidence">${esc(r.evidence)}</div>${r.source_url?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(r.source_url)}">Source</a>`:""}</div>`).join("")||'<div class="notice">No external relationships imported yet.</div>'}
+    ${g.relationships.map(r=>`<div class="card"><strong>${esc(r.source_entity.name)} → ${esc(r.relation_type)} → ${esc(r.target_entity.name)}</strong><div class="meta"><span>${esc(r.source_system)}</span><span>${esc(r.observed_on||"")}</span></div><div class="evidence">${esc(r.evidence)}</div>${safeUrl(r.source_url)?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(safeUrl(r.source_url))}">Source</a>`:""}</div>`).join("")||'<div class="notice">No external relationships imported yet.</div>'}
   `;
 }
 async function runResearch(){
@@ -138,7 +144,7 @@ function renderReport(r){
       <div class="meta"><span class="badge">${esc(f.category)}</span><span>Confidence ${esc(Number(f.confidence).toFixed(2))}</span>${f.section?`<span>Section ${esc(f.section)}</span>`:""}</div>
       <div>${esc(f.statement)}</div>
       <div class="evidence">${esc(f.evidence)}</div>
-      <div class="meta">${f.sources.map(s=>s.url?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(s.url)}">${esc(s.type)} #${esc(s.id)}</a>`:`<span>${esc(s.type)} #${esc(s.id)}</span>`).join("")}</div>
+      <div class="meta">${f.sources.map(s=>safeUrl(s.url)?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(safeUrl(s.url))}">${esc(s.type)} #${esc(s.id)}</a>`:`<span>${esc(s.type)} #${esc(s.id)}</span>`).join("")}</div>
       <div class="notice">${esc(f.caveat)}</div>
     </article>`).join("")||'<div class="notice">No report findings.</div>'}
   `;
