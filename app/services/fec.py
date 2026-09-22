@@ -34,5 +34,4 @@ class FECClient:
             "contributor_name":contributor_name,
             "min_date":min_date,
             "max_date":max_date,
-            "is_individual":"false",
         })
