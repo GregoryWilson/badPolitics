@@ -141,7 +141,7 @@ async function selectBill(id){
   $("latestAction").textContent=bill.latest_action||"No latest action recorded.";
   $("report").innerHTML='<div class="notice">Build an investigation report to populate this tab.</div>';
   status("Loading bill details…");
-  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadFiscal(),loadDiff(),loadGraph()]);
+  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadFiscal(),loadDiff(),loadLineage(),loadGraph()]);
   status("");
 }
 async function loadMetrics(){
@@ -219,6 +219,40 @@ async function loadDiff(){
     $("diff").innerHTML='<div class="notice">No version diff is available yet.</div>';
   }
 }
+async function loadLineage(){
+  let result;
+  try{
+    result=await api(`/bills/${state.selected.id}/lineage`,{method:"POST"});
+  }catch(e){
+    $("lineage").innerHTML='<div class="notice">Provision lineage is unavailable.</div>';
+    return;
+  }
+  const later=result.events.filter(e=>e.from_version?.id&&["introduced","modified","removed"].includes(e.event_type));
+  $("lineage").innerHTML=`
+    <div class="notice">${esc(result.interpretation_note)}</div>
+    ${later.length?later.map(e=>`
+      <article class="card">
+        <h3>Section ${esc(e.section_number)} · ${esc(e.event_type)}</h3>
+        <div class="meta">
+          <span>${esc(e.from_version.code||"initial")} → ${esc(e.to_version.code)}</span>
+          ${e.similarity!==null&&e.similarity!==undefined?`<span>Similarity ${esc(e.similarity)}</span>`:""}
+        </div>
+        ${e.candidate_amendments?.length?`
+          <div class="section-title">Candidate amendment associations</div>
+          ${e.candidate_amendments.map(a=>`
+            <div class="card">
+              <strong>${esc((a.amendment_type||"").toUpperCase())} ${esc(a.amendment_number)}</strong>
+              <div class="meta"><span>Confidence ${esc(Number(a.confidence).toFixed(2))}</span><span>${esc((a.metadata?.basis||"").replaceAll("_"," "))}</span></div>
+              <div>${esc(a.description||a.latest_action||"")}</div>
+              <div class="notice">${esc(a.evidence)}</div>
+              ${safeUrl(a.source_url)?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(safeUrl(a.source_url))}">Amendment source</a>`:""}
+            </div>`).join("")}
+        `:""}
+        ${e.diff?`<pre>${esc(e.diff)}</pre>`:""}
+      </article>`).join(""):'<div class="notice">No later provision changes detected across stored versions.</div>'}
+  `;
+}
+
 async function loadGraph(){
   const g=await api(`/bills/${state.selected.id}/graph?depth=2`);
   $("graph").innerHTML=`
