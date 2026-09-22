@@ -16,12 +16,13 @@ from app.services.external_evidence import import_fec_candidate,import_fec_recei
 from app.services.correlation import correlate_bill,correlations_for_bill
 from app.schemas.research import ResearchRunRequest
 from app.services.research import run_bill_research,research_packet
+from app.services.reporting import build_report,get_report
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.7.0")
+app=FastAPI(title="LegisWatch",version="0.8.0")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.7.0"}
+def health(): return {"ok":True,"version":"0.8.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -228,5 +229,20 @@ def bill_research(bill_id:int,payload:ResearchRunRequest,db:Session=Depends(get_
 def research_get(run_id:int,db:Session=Depends(get_db)):
     try:
         return research_packet(db,run_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+
+
+@app.post("/bills/{bill_id}/reports")
+def report_create(bill_id:int,research_run_id:int|None=None,db:Session=Depends(get_db)):
+    try:
+        return build_report(db,bill_id,research_run_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+
+@app.get("/reports/{report_id}")
+def report_get(report_id:int,db:Session=Depends(get_db)):
+    try:
+        return get_report(db,report_id)
     except ValueError as e:
         raise HTTPException(404,str(e))
