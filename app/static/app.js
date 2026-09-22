@@ -389,6 +389,8 @@ async function loadPackets(){
       ${result.packets.length?result.packets.map(renderPacketCard).join(""):'<div class="notice">No provision evidence packets were generated for this bill.</div>'}
     `;
     wirePacketButtons();
+    await api(`/bills/${state.selected.id}/queue/sync?limit=50&prepare=false`,{method:"POST"});
+    await Promise.all([loadBillQueue(),loadQueueData()]);
   }catch(e){
     $("packets").innerHTML='<div class="notice">Evidence packet generation is unavailable.</div>';
   }
@@ -447,10 +449,11 @@ function activateTab(name){
 
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
 $("billSearch").oninput=renderBillList;
-$("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData()])};
+$("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData(),loadQueueData()])};
 $("scanWatches").onclick=scanWatches;
 $("watchBill").onclick=watchSelectedBill;
 $("watchSession").onclick=watchSelectedSession;
 $("runResearch").onclick=runResearch;
 $("buildReport").onclick=buildReport;
-Promise.all([loadBills(),loadWatchData()]);
+$("queueStatusFilter").onchange=loadQueueData;
+Promise.all([loadBills(),loadWatchData(),loadQueueData()]);
