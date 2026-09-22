@@ -150,3 +150,17 @@ class ExternalEvidenceRecord(Base):
     raw_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     __table_args__=(UniqueConstraint("source_system","record_type","external_id"),)
+
+
+class CorrelationFinding(Base):
+    __tablename__="correlation_findings"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    legislative_entity_id:Mapped[int]=mapped_column(ForeignKey("evidence_entities.id",ondelete="CASCADE"))
+    matched_entity_id:Mapped[int]=mapped_column(ForeignKey("evidence_entities.id",ondelete="CASCADE"))
+    match_basis:Mapped[str]=mapped_column(String(32))
+    confidence:Mapped[float]=mapped_column(Float,default=0)
+    evidence:Mapped[str]=mapped_column(Text)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(UniqueConstraint("bill_id","legislative_entity_id","matched_entity_id","match_basis"),)
