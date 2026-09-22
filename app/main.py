@@ -3,17 +3,17 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.base import Base
 from app.db.session import engine,get_db
-from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment
+from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EntityRelationship
 from app.services.ingest import ingest_federal
 from app.services.monitor import poll_recent_bills
 from app.services.diffing import summary,unified
-from app.services.llm import deep_dive
+from app.services.llm import deep_dive\nfrom app.services.graph import sync_bill_graph,graph_for_bill,relationships_for_bill,create_relationship\nfrom app.schemas.graph import RelationshipCreate
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.2.0")
+app=FastAPI(title="LegisWatch",version="0.3.0")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.2.0"}
+def health(): return {"ok":True,"version":"0.3.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -57,3 +57,46 @@ def section_deep_dive(section_id:int,db:Session=Depends(get_db)):
     try: analysis=deep_dive(bill.title or f"{bill.bill_type} {bill.bill_number}",sec.text,[{"kind":f.kind,"evidence":f.evidence} for f in fs])
     except Exception as e: raise HTTPException(502,f"Local LLM failed: {e}")
     return {"bill":bill.title,"version":version.version_code,"section":sec.section_number,"analysis":analysis}
+
+
+@app.post("/bills/{bill_id}/graph/sync")
+def graph_sync(bill_id:int,db:Session=Depends(get_db)):
+    try: return sync_bill_graph(db,bill_id)
+    except ValueError as e: raise HTTPException(404,str(e))
+
+@app.get("/bills/{bill_id}/graph")
+def graph_get(bill_id:int,db:Session=Depends(get_db)):
+    if not db.get(Bill,bill_id): raise HTTPException(404,"Bill not found")
+    graph=graph_for_bill(db,bill_id)
+    graph["relationships"]=relationships_for_bill(db,bill_id)
+    return graph
+
+@app.post("/graph/relationships")
+def relationship_create(payload:RelationshipCreate,db:Session=Depends(get_db)):
+    try:
+        r=create_relationship(
+            db,
+            payload.source_entity_id,
+            payload.target_entity_id,
+            payload.relation_type,
+            payload.evidence,
+            payload.source_url,
+            payload.observed_on,
+            payload.confidence,
+            payload.source_system,
+            payload.metadata,
+        )
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    return {
+        "id":r.id,
+        "source_entity_id":r.source_entity_id,
+        "target_entity_id":r.target_entity_id,
+        "relation_type":r.relation_type,
+        "evidence":r.evidence,
+        "source_url":r.source_url,
+        "observed_on":r.observed_on,
+        "confidence":r.confidence,
+        "source_system":r.source_system,
+        "metadata":r.metadata_json,
+    }
