@@ -9,6 +9,7 @@ import httpx
 from app.core.config import settings
 from app.jurisdictions.base import (
     NormalizedBill, NormalizedVersion, NormalizedAction, NormalizedSponsor,
+    NormalizedDocument,
 )
 
 BILL_TYPES={
@@ -124,6 +125,89 @@ class TexasTLOAdapter:
     def _split_people(value):
         return [x.strip() for x in (value or "").split(" | ") if x.strip()]
 
+    @staticmethod
+    def _bill_from_history_filename(value:str):
+        name=value.replace("\\","/").split("/")[-1].upper()
+        match=re.search(r"^(HB|HR|HC|HJ|SB|SR|SC|SJ)(\d{5})\.XML$",name)
+        if not match:
+            return None
+        prefix,number=match.groups()
+        kind={
+            "HB":"HB","HR":"HR","HC":"HCR","HJ":"HJR",
+            "SB":"SB","SR":"SR","SC":"SCR","SJ":"SJR",
+        }[prefix]
+        return {"bill_type":kind,"number":str(int(number)),"filename":name}
+
+    def parse_history_index(self,raw:bytes,limit:int=100):
+        text=raw.decode("utf-8","ignore")
+        found=[]
+        seen=set()
+        for match in re.finditer(r"(?:[A-Za-z0-9_./\\-]*)(?:HB|HR|HC|HJ|SB|SR|SC|SJ)\d{5}\.xml",text,re.I):
+            parsed=self._bill_from_history_filename(match.group(0))
+            if not parsed:
+                continue
+            key=(parsed["bill_type"],parsed["number"])
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(parsed)
+            if len(found)>=limit:
+                return found
+        for match in re.finditer(r"\b(HB|HCR|HJR|HR|SB|SCR|SJR|SR)\s*0*(\d{1,5})\b",text,re.I):
+            kind,number=match.groups()
+            key=(kind.upper(),str(int(number)))
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append({"bill_type":key[0],"number":key[1],"filename":None})
+            if len(found)>=limit:
+                break
+        return found
+
+    def discover_bills(self,session:str,limit:int=100):
+        session_code,session_number,session_label=self._session(session)
+        raw=self._ftp_bytes(f"/bills/{session_code}/billhistory/history.xml")
+        bills=self.parse_history_index(raw,limit=max(1,min(limit,500)))
+        return {
+            "jurisdiction":"TX",
+            "session":session_label,
+            "session_number":session_number,
+            "source_url":f"ftp://{self.ftp_host}/bills/{session_code}/billhistory/history.xml",
+            "bills":bills,
+        }
+
+    def _documents(self,root):
+        documents=[]
+        for path,document_type in (
+            ("billtext/docTypes/analysis/versions/version","bill_analysis"),
+            ("billtext/docTypes/fiscalNote/versions/version","fiscal_note"),
+        ):
+            for version in root.iterfind(path):
+                desc=(version.findtext("versionDescription") or "").strip() or None
+                html_url=(version.findtext("WebHTMLURL") or "").strip()
+                pdf_url=(version.findtext("WebPDFURL") or "").strip()
+                if not html_url and not pdf_url:
+                    continue
+                text=None
+                if html_url:
+                    try:
+                        text,source_url=self._download_text(html_url)
+                    except Exception:
+                        source_url=html_url.replace("http://capitol.texas.gov/","https://capitol.texas.gov/")
+                    fmt="html"
+                else:
+                    source_url=pdf_url.replace("http://capitol.texas.gov/","https://capitol.texas.gov/")
+                    fmt="pdf"
+                documents.append(NormalizedDocument(
+                    document_type=document_type,
+                    description=desc,
+                    source_url=source_url,
+                    text=text,
+                    format=fmt,
+                    metadata={"texas_version_description":desc},
+                ))
+        return documents
+
     def fetch_bill(self,session:str,bill_type:str,number:str):
         session_code,session_number,session_label=self._session(session)
         kind,number,_,_,_,_=self._bill_parts(bill_type,number)
@@ -225,4 +309,5 @@ class TexasTLOAdapter:
             versions=versions,
             actions=actions,
             sponsors=sponsors,
+            documents=self._documents(root),
         )

@@ -7,8 +7,8 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.base import Base
 from app.db.session import engine,get_db,SessionLocal
-from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity,ExternalEvidenceRecord,WatchRule
-from app.services.ingest import ingest_federal,ingest_jurisdiction
+from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity,ExternalEvidenceRecord,WatchRule,LegislativeDocument
+from app.services.ingest import ingest_federal,ingest_jurisdiction,discover_jurisdiction
 from app.services.monitor import poll_recent_bills
 from app.services.diffing import summary,unified
 from app.services.llm import deep_dive
@@ -27,7 +27,7 @@ from app.core.config import settings
 from app.jurisdictions import list_adapters
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="1.1.0")
+app=FastAPI(title="LegisWatch",version="1.2.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -36,7 +36,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"1.1.0","watch_poll_minutes":settings.watch_poll_minutes}
+def health(): return {"ok":True,"version":"1.2.0","watch_poll_minutes":settings.watch_poll_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -51,6 +51,15 @@ def jurisdictions():
 def jurisdiction_ingest(jurisdiction:str,session:str,bill_type:str,number:str,db:Session=Depends(get_db)):
     try:
         return ingest_jurisdiction(db,jurisdiction,session,bill_type,number)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,str(e))
+
+@app.post("/jurisdictions/{jurisdiction}/discover/{session}")
+def jurisdiction_discover(jurisdiction:str,session:str,limit:int=100,ingest:bool=False,db:Session=Depends(get_db)):
+    try:
+        return discover_jurisdiction(db,jurisdiction,session,limit,ingest)
     except ValueError as e:
         raise HTTPException(404,str(e))
     except Exception as e:
@@ -74,6 +83,28 @@ def bills(db:Session=Depends(get_db)):
         "title":b.title,
         "latest_action":b.latest_action,
     } for b in rows]
+
+@app.get("/bills/{bill_id}/documents")
+def bill_documents(bill_id:int,db:Session=Depends(get_db)):
+    if not db.get(Bill,bill_id):
+        raise HTTPException(404,"Bill not found")
+    rows=db.scalars(
+        select(LegislativeDocument)
+        .where(LegislativeDocument.bill_id==bill_id)
+        .order_by(LegislativeDocument.document_type,LegislativeDocument.id)
+    ).all()
+    return [{
+        "id":d.id,
+        "document_type":d.document_type,
+        "description":d.description,
+        "source_url":d.source_url,
+        "source_system":d.source_system,
+        "issued_on":d.issued_on,
+        "format":d.format,
+        "sha256":d.sha256,
+        "has_text":d.text is not None,
+        "metadata":d.metadata_json,
+    } for d in rows]
 
 @app.get("/bills/{bill_id}/timeline")
 def timeline(bill_id:int,db:Session=Depends(get_db)):
@@ -324,13 +355,18 @@ async def stop_watch_loop():
 def watch_create(payload:WatchCreate,db:Session=Depends(get_db)):
     bill_type=payload.bill_type.lower() if payload.bill_type else None
     bill_number=str(payload.bill_number) if payload.bill_number else None
-    existing=db.scalar(select(WatchRule).where(
+    candidates=db.scalars(select(WatchRule).where(
         WatchRule.target_type==payload.target_type,
         WatchRule.jurisdiction==payload.jurisdiction,
         WatchRule.congress==payload.congress,
         WatchRule.bill_type==bill_type,
         WatchRule.bill_number==bill_number,
-    ))
+    )).all()
+    existing=next((
+        w for w in candidates
+        if payload.target_type!="session"
+        or (w.metadata_json or {}).get("session")==payload.metadata.get("session")
+    ),None)
     if existing:
         existing.active=True
         existing.auto_research=payload.auto_research

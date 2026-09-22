@@ -29,6 +29,16 @@ class NormalizedSponsor:
     raw: dict = field(default_factory=dict)
 
 @dataclass
+class NormalizedDocument:
+    document_type: str
+    description: str | None
+    source_url: str
+    issued_on: str | None = None
+    text: str | None = None
+    format: str = "html"
+    metadata: dict = field(default_factory=dict)
+
+@dataclass
 class NormalizedAmendment:
     amendment_type: str
     amendment_number: str
@@ -53,6 +63,7 @@ class NormalizedBill:
     actions: list[NormalizedAction] = field(default_factory=list)
     sponsors: list[NormalizedSponsor] = field(default_factory=list)
     amendments: list[NormalizedAmendment] = field(default_factory=list)
+    documents: list[NormalizedDocument] = field(default_factory=list)
 
 class JurisdictionAdapter(Protocol):
     code: str

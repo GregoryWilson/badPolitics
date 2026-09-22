@@ -43,3 +43,20 @@ def test_texas_bill_watch_preserves_jurisdiction():
 def test_non_us_congress_watch_is_rejected():
     with pytest.raises(ValidationError):
         WatchCreate(name="TX session",target_type="congress",jurisdiction="TX",congress=89)
+
+
+def test_texas_session_watch_requires_session_label():
+    with pytest.raises(ValidationError):
+        WatchCreate(name="TX 89",target_type="session",jurisdiction="TX",congress=89)
+
+def test_texas_session_watch_shape():
+    watch=WatchCreate(
+        name="Texas 89R",
+        target_type="session",
+        jurisdiction="TX",
+        congress=89,
+        metadata={"session":"89R","limit":100},
+    )
+    assert watch.target_type=="session"
+    assert watch.jurisdiction=="TX"
+    assert watch.metadata["session"]=="89R"

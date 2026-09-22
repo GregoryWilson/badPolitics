@@ -18,6 +18,7 @@ class Bill(Base):
     actions=relationship("BillAction",back_populates="bill",cascade="all,delete-orphan")
     sponsors=relationship("BillSponsor",back_populates="bill",cascade="all,delete-orphan")
     amendments=relationship("Amendment",back_populates="bill",cascade="all,delete-orphan")
+    documents=relationship("LegislativeDocument",back_populates="bill",cascade="all,delete-orphan")
     __table_args__=(UniqueConstraint("jurisdiction","congress","bill_type","bill_number"),)
 
 class BillVersion(Base):
@@ -235,3 +236,21 @@ class WatchEvent(Base):
     detail_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     __table_args__=(UniqueConstraint("watch_rule_id","event_type","event_key"),)
+
+
+class LegislativeDocument(Base):
+    __tablename__="legislative_documents"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    document_type:Mapped[str]=mapped_column(String(64))
+    description:Mapped[str|None]=mapped_column(Text,nullable=True)
+    source_url:Mapped[str]=mapped_column(Text)
+    source_system:Mapped[str]=mapped_column(String(64))
+    issued_on:Mapped[str|None]=mapped_column(String(32),nullable=True)
+    format:Mapped[str]=mapped_column(String(32),default="html")
+    text:Mapped[str|None]=mapped_column(Text,nullable=True)
+    sha256:Mapped[str|None]=mapped_column(String(64),nullable=True)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    bill=relationship("Bill",back_populates="documents")
+    __table_args__=(UniqueConstraint("bill_id","document_type","source_url"),)

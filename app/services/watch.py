@@ -1,10 +1,10 @@
 from datetime import datetime
 from sqlalchemy import select
 from app.models.entities import (
-    Bill, BillVersion, BillAction, Amendment,
+    Bill, BillVersion, BillAction, Amendment, LegislativeDocument,
     WatchRule, WatchScan, WatchEvent,
 )
-from app.services.ingest import ingest_federal, ingest_jurisdiction
+from app.services.ingest import ingest_federal, ingest_jurisdiction, discover_jurisdiction
 from app.services.monitor import poll_recent_bills
 from app.services.research import run_bill_research
 from app.services.reporting import build_report
@@ -22,7 +22,7 @@ def _find_bill(db,congress,bill_type,bill_number,jurisdiction="US"):
 
 def _snapshot_bill(db,bill):
     if not bill:
-        return {"exists":False,"versions":set(),"actions":set(),"amendments":set()}
+        return {"exists":False,"versions":set(),"actions":set(),"amendments":set(),"documents":set()}
     versions=set(db.scalars(select(BillVersion.sha256).where(BillVersion.bill_id==bill.id)).all())
     actions=set(
         f"{a.action_date}|{a.text}"
@@ -32,7 +32,11 @@ def _snapshot_bill(db,bill):
         f"{a.amendment_type}|{a.amendment_number}"
         for a in db.scalars(select(Amendment).where(Amendment.bill_id==bill.id)).all()
     )
-    return {"exists":True,"versions":versions,"actions":actions,"amendments":amendments}
+    documents=set(
+        f"{d.document_type}|{d.source_url}"
+        for d in db.scalars(select(LegislativeDocument).where(LegislativeDocument.bill_id==bill.id)).all()
+    )
+    return {"exists":True,"versions":versions,"actions":actions,"amendments":amendments,"documents":documents}
 
 def _emit(db,watch,scan,bill,event_type,event_key,title,detail):
     existing=db.scalar(select(WatchEvent).where(
@@ -69,6 +73,14 @@ def _diff_events(db,watch,scan,bill,before,after):
             db,watch,scan,bill,"new_action",key,
             f"New legislative action for {bill.bill_type.upper()} {bill.bill_number}",
             {"action_date":date or None,"text":text},
+        )
+        if row: events.append(row)
+    for key in sorted(after["documents"]-before["documents"]):
+        document_type,source_url=key.split("|",1)
+        row=_emit(
+            db,watch,scan,bill,"new_document",key,
+            f'New {document_type.replace("_"," ")} for {bill.bill_type.upper()} {bill.bill_number}',
+            {"document_type":document_type,"source_url":source_url},
         )
         if row: events.append(row)
     for key in sorted(after["amendments"]-before["amendments"]):
@@ -119,6 +131,73 @@ def scan_bill_watch(db,watch,scan):
         "refreshed":refreshed,
     }
 
+def scan_session_watch(db,watch,scan):
+    session=(watch.metadata_json or {}).get("session")
+    limit=int((watch.metadata_json or {}).get("limit",100))
+    if not session:
+        raise ValueError("Session watch is missing metadata.session")
+    result=discover_jurisdiction(
+        db,
+        watch.jurisdiction,
+        session,
+        limit=limit,
+        ingest=True,
+    )
+    events=[]
+    refreshed={}
+    for ingest_result in result.get("ingested",[]):
+        bill_id=ingest_result.get("bill_id")
+        if not bill_id:
+            continue
+        bill=db.get(Bill,bill_id)
+        if not bill:
+            continue
+        if ingest_result.get("created_bill"):
+            key=_bill_key(bill.congress,bill.bill_type,bill.bill_number,bill.jurisdiction)
+            row=_emit(
+                db,watch,scan,bill,"bill_discovered",key,
+                f"Newly monitored bill: {bill.bill_type.upper()} {bill.bill_number}",
+                {"title":bill.title,"session":session},
+            )
+            if row: events.append(row)
+        created_versions=ingest_result.get("created_versions") or []
+        created_actions=ingest_result.get("created_actions") or []
+        documents=ingest_result.get("documents") or []
+        for version in created_versions:
+            key=version.get("sha256") or f'{bill_id}:{version.get("version")}'
+            row=_emit(
+                db,watch,scan,bill,"new_version",key,
+                f"New bill text version detected for {bill.bill_type.upper()} {bill.bill_number}",
+                version,
+            )
+            if row: events.append(row)
+        for action in created_actions:
+            key=f'{action.get("date")}|{action.get("text")}'
+            row=_emit(
+                db,watch,scan,bill,"new_action",key,
+                f"New legislative action for {bill.bill_type.upper()} {bill.bill_number}",
+                action,
+            )
+            if row: events.append(row)
+        for document in documents:
+            key=f'{document.get("document_type")}:{document.get("source_url")}'
+            row=_emit(
+                db,watch,scan,bill,"new_document",key,
+                f'New {str(document.get("document_type") or "supporting document").replace("_"," ")} for {bill.bill_type.upper()} {bill.bill_number}',
+                document,
+            )
+            if row: events.append(row)
+        if (created_versions or created_actions or documents) and (watch.auto_research or watch.auto_report):
+            refreshed[str(bill.id)]=_refresh_outputs(db,watch,bill,events)
+    return {
+        "discovered_count":len(result.get("bills",[])),
+        "ingested_count":len(result.get("ingested",[])),
+        "failed_count":len(result.get("failed",[])),
+        "new_event_ids":[e.id for e in events],
+        "refreshed":refreshed,
+        "source_url":result.get("source_url"),
+    }
+
 def scan_congress_watch(db,watch,scan):
     before_bills=db.scalars(select(Bill).where(
         Bill.jurisdiction=="US",Bill.congress==watch.congress
@@ -167,6 +246,8 @@ def run_watch(db,watch_id:int):
             result=scan_bill_watch(db,watch,scan)
         elif watch.target_type=="congress":
             result=scan_congress_watch(db,watch,scan)
+        elif watch.target_type=="session":
+            result=scan_session_watch(db,watch,scan)
         else:
             raise ValueError(f"Unsupported watch target type: {watch.target_type}")
         scan.status="completed"

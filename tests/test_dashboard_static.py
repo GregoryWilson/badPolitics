@@ -35,3 +35,12 @@ def test_dashboard_uses_jurisdiction_and_session_labels():
     assert "b.jurisdiction" in js
     assert "b.session" in js
     assert "state.selected.jurisdiction" in js
+
+
+def test_dashboard_supports_non_federal_session_watches_and_documents():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'id="watchSession"' in html
+    assert 'data-tab="documents"' in html
+    assert 'api(`/bills/${state.selected.id}/documents`)' in js
+    assert 'target_type:"session"' in js

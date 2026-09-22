@@ -137,6 +137,23 @@ Texas Legislature Online asks legislative data services to use its bulk FTP file
 
 Texas MVP-10 supports direct bill ingestion and bill-level watches. Session-wide Texas discovery is intentionally deferred until the adapter gains a bounded update-index reader.
 
+## MVP-11
+- bounded Texas session discovery from TLO `billhistory/history.xml`
+- optional bounded ingest of discovered/updated Texas bills
+- fiscal notes and bill analyses persisted as first-class legislative documents
+- HTML document text capture when available; PDF-only sources preserved by URL
+- document-aware bill watches and change events
+- Texas session-level watch rules
+- dashboard Documents tab
+- dashboard Watch Session control for non-federal jurisdictions
+- investigation reports include supporting-document provenance
+
+### Texas discovery semantics
+
+Texas session discovery reads the official TLO `billhistory/history.xml` update index and processes only the configured bounded result count. It does not crawl the TLO public search UI. Session watches ingest that bounded set, then emit events only for newly stored bill versions, actions, supporting documents, or newly created bills.
+
+A fiscal note or bill analysis is treated as source material, not as a negative finding by itself.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -150,9 +167,11 @@ Open `http://localhost:8000/` for the dashboard or `http://localhost:8000/docs` 
 ```
 GET  /jurisdictions
 POST /jurisdictions/{jurisdiction}/ingest/{session}/{bill_type}/{number}
+POST /jurisdictions/{jurisdiction}/discover/{session}?limit=100&ingest=false
 POST /ingest/federal/{congress}/{bill_type}/{number}
 POST /monitor/federal/{congress}?limit=50
 GET  /bills
+GET  /bills/{bill_id}/documents
 GET  /bills/{bill_id}/timeline
 GET  /bills/{bill_id}/findings
 GET  /bills/{bill_id}/diff/latest
@@ -192,3 +211,12 @@ POST /jurisdictions/TX/ingest/89R/HB/9
 ```
 
 The legacy federal ingest endpoint remains supported for compatibility.
+
+
+### Texas session discovery example
+
+```
+POST /jurisdictions/TX/discover/89R?limit=100&ingest=true
+```
+
+A Texas session watch can then be created with `target_type="session"`, `jurisdiction="TX"`, `congress=89`, and `metadata.session="89R"`.
