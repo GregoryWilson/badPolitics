@@ -51,7 +51,7 @@ function renderChangeFeed(){
 }
 function updateWatchButton(){
   if(!state.selected)return;
-  const watched=state.watches.some(w=>w.active&&w.target_type==="bill"&&w.congress===state.selected.congress&&w.bill_type===state.selected.bill_type&&String(w.bill_number)===String(state.selected.bill_number));
+  const watched=state.watches.some(w=>w.active&&w.target_type==="bill"&&w.jurisdiction===state.selected.jurisdiction&&w.congress===state.selected.congress&&w.bill_type===state.selected.bill_type&&String(w.bill_number)===String(state.selected.bill_number));
   $("watchBill").textContent=watched?"Watching":"Watch Bill";
   $("watchBill").disabled=watched;
 }
@@ -61,9 +61,11 @@ async function watchSelectedBill(){
     const payload={
       name:`${state.selected.bill_type.toUpperCase()} ${state.selected.bill_number}`,
       target_type:"bill",
+      jurisdiction:state.selected.jurisdiction,
       congress:state.selected.congress,
       bill_type:state.selected.bill_type,
       bill_number:String(state.selected.bill_number),
+      metadata:{session:state.selected.session},
       auto_research:false,
       auto_report:false
     };
@@ -97,7 +99,7 @@ function renderBillList(){
   const rows=state.bills.filter(b=>!q||[b.title,b.bill_type,b.bill_number,b.latest_action].join(" ").toLowerCase().includes(q));
   $("billList").innerHTML=rows.map(b=>`
     <div class="bill-item ${state.selected?.id===b.id?"selected":""}" data-id="${b.id}">
-      <div class="bill-number">${esc(b.bill_type.toUpperCase())} ${esc(b.bill_number)} · Congress ${esc(b.congress)}</div>
+      <div class="bill-number">${esc(b.bill_type.toUpperCase())} ${esc(b.bill_number)} · ${esc(b.jurisdiction)} · ${esc(b.session)}</div>
       <div class="bill-item-title">${esc(b.title||"Untitled bill")}</div>
       <div class="bill-item-action">${esc(b.latest_action||"No latest action recorded")}</div>
     </div>`).join("")||'<div class="notice">No bills match this filter.</div>';
@@ -108,7 +110,7 @@ async function selectBill(id){
   const bill=state.bills.find(b=>b.id===id); if(!bill)return;
   state.selected=bill; state.report=null; renderBillList(); updateWatchButton();
   $("emptyState").hidden=true;$("billView").hidden=false;
-  $("billIdLine").textContent=`${bill.bill_type.toUpperCase()} ${bill.bill_number} · Congress ${bill.congress}`;
+  $("billIdLine").textContent=`${bill.bill_type.toUpperCase()} ${bill.bill_number} · ${bill.jurisdiction} · ${bill.session}`;
   $("billTitle").textContent=bill.title||"Untitled bill";
   $("latestAction").textContent=bill.latest_action||"No latest action recorded.";
   $("report").innerHTML='<div class="notice">Build an investigation report to populate this tab.</div>';
