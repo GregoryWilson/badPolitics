@@ -24,4 +24,22 @@ def test_bill_watch_normal_shape():
     assert watch.bill_number=="123"
 
 def test_bill_key_is_stable():
-    assert _bill_key(119,"HR","123")=="119:hr:123"
+    assert _bill_key(119,"HR","123")=="US:119:hr:123"
+
+
+def test_texas_bill_watch_preserves_jurisdiction():
+    watch=WatchCreate(
+        name="TX HB 9",
+        target_type="bill",
+        jurisdiction="tx",
+        congress=89,
+        bill_type="hb",
+        bill_number="9",
+        metadata={"session":"89R"},
+    )
+    assert watch.jurisdiction=="TX"
+    assert watch.metadata["session"]=="89R"
+
+def test_non_us_congress_watch_is_rejected():
+    with pytest.raises(ValidationError):
+        WatchCreate(name="TX session",target_type="congress",jurisdiction="TX",congress=89)
