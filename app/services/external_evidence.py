@@ -1,7 +1,7 @@
 import hashlib
 from sqlalchemy import select
 from app.models.entities import EvidenceEntity, ExternalEvidenceRecord
-from app.services.graph import get_or_create_entity, create_relationship
+from app.services.graph import get_or_create_entity, create_relationship, normalize_name
 from app.services.fec import FECClient
 from app.services.lda import LDAClient
 
@@ -73,8 +73,14 @@ def import_fec_receipts(db, committee_entity_id:int, committee_id:str, contribut
     db.commit()
     return {"committee_entity_id":committee.id,"committee_id":committee_id,"receipt_count":len(imported),"receipts":imported}
 
-def import_lda_client(db, client_name:str, filing_year:int|None=None, max_records:int=100):
+def import_lda_client(db, client_name:str, filing_year:int|None=None, max_records:int=100, exact_client_match:bool=False):
     results=LDAClient().filings_all(max_records=max_records,client_name=client_name,filing_year=filing_year)
+    if exact_client_match:
+        expected=normalize_name(client_name)
+        results=[
+            item for item in results
+            if normalize_name(((item.get("client") or {}).get("name") or ""))==expected
+        ]
     imported=[]
     for i,item in enumerate(results):
         client_data=item.get("client") or {}
