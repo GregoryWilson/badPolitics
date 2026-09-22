@@ -1,5 +1,5 @@
 import re
-from sqlalchemy import select
+from sqlalchemy import select, or_
 from app.models.entities import (
     Bill, BillVersion, BillSponsor, Section,
     EvidenceEntity, LegislativeEntityLink, EntityRelationship,
@@ -154,22 +154,27 @@ def graph_for_bill(db, bill_id: int):
 
 def relationships_for_bill(db, bill_id: int):
     entity_ids = select(LegislativeEntityLink.entity_id).where(LegislativeEntityLink.bill_id == bill_id)
-    rels = db.scalars(select(EntityRelationship).where(
+    rels = db.scalars(select(EntityRelationship).where(or_(
         EntityRelationship.source_entity_id.in_(entity_ids),
         EntityRelationship.target_entity_id.in_(entity_ids),
-    )).all()
-    return [{
-        "id": r.id,
-        "source_entity_id": r.source_entity_id,
-        "target_entity_id": r.target_entity_id,
-        "relation_type": r.relation_type,
-        "evidence": r.evidence,
-        "source_url": r.source_url,
-        "observed_on": r.observed_on,
-        "confidence": r.confidence,
-        "source_system": r.source_system,
-        "metadata": r.metadata_json,
-    } for r in rels]
+    ))).all()
+    result=[]
+    for r in rels:
+        source=db.get(EvidenceEntity,r.source_entity_id)
+        target=db.get(EvidenceEntity,r.target_entity_id)
+        result.append({
+            "id":r.id,
+            "source_entity":{"id":source.id,"type":source.entity_type,"name":source.canonical_name},
+            "target_entity":{"id":target.id,"type":target.entity_type,"name":target.canonical_name},
+            "relation_type":r.relation_type,
+            "evidence":r.evidence,
+            "source_url":r.source_url,
+            "observed_on":r.observed_on,
+            "confidence":r.confidence,
+            "source_system":r.source_system,
+            "metadata":r.metadata_json,
+        })
+    return result
 
 
 def create_relationship(db, source_entity_id: int, target_entity_id: int, relation_type: str,
