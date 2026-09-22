@@ -3,6 +3,7 @@ from sqlalchemy import select
 
 from app.models.entities import (
     Bill, BillVersion, Section, Finding, BillAction, BillSponsor, Amendment,
+    LegislativeDocument,
 )
 from app.services.parser import normalize_text, split_sections
 from app.services.rules import analyze_section
@@ -75,6 +76,37 @@ def _upsert_amendment(db,bill,data,amendment):
         source_url=amendment.source_url,
         raw_json=amendment.raw,
     ))
+
+def _upsert_document(db,bill,data,document):
+    text=normalize_text(document.text) if document.text else None
+    sha=hashlib.sha256(text.encode()).hexdigest() if text else None
+    existing=db.scalar(select(LegislativeDocument).where(
+        LegislativeDocument.bill_id==bill.id,
+        LegislativeDocument.document_type==document.document_type,
+        LegislativeDocument.source_url==document.source_url,
+    ))
+    if existing:
+        existing.description=document.description
+        existing.issued_on=document.issued_on
+        existing.format=document.format
+        existing.text=text
+        existing.sha256=sha
+        existing.metadata_json=document.metadata
+        return existing
+    row=LegislativeDocument(
+        bill_id=bill.id,
+        document_type=document.document_type,
+        description=document.description,
+        source_url=document.source_url,
+        source_system=data.source_system,
+        issued_on=document.issued_on,
+        format=document.format,
+        text=text,
+        sha256=sha,
+        metadata_json=document.metadata,
+    )
+    db.add(row); db.flush()
+    return row
 
 def ingest_normalized_bill(db,data:NormalizedBill):
     bill=db.scalar(select(Bill).where(
@@ -159,6 +191,16 @@ def ingest_normalized_bill(db,data:NormalizedBill):
         _upsert_sponsor(db,bill,sponsor)
     for amendment in data.amendments:
         _upsert_amendment(db,bill,data,amendment)
+    documents=[]
+    for document in data.documents:
+        row=_upsert_document(db,bill,data,document)
+        documents.append({
+            "id":row.id,
+            "document_type":row.document_type,
+            "description":row.description,
+            "source_url":row.source_url,
+            "sha256":row.sha256,
+        })
 
     db.commit()
     graph_error=None
@@ -173,6 +215,7 @@ def ingest_normalized_bill(db,data:NormalizedBill):
         "session":data.session,
         "title":bill.title,
         "created_versions":created,
+        "documents":documents,
         "graph_sync_error":graph_error,
     }
 
@@ -183,3 +226,27 @@ def ingest_jurisdiction(db,jurisdiction:str,session:str,bill_type:str,number:str
 
 def ingest_federal(db,congress:int,bill_type:str,number:str):
     return ingest_jurisdiction(db,"US",str(congress),bill_type,number)
+
+
+def discover_jurisdiction(db,jurisdiction:str,session:str,limit:int=100,ingest:bool=False):
+    adapter=get_adapter(jurisdiction)
+    discover=getattr(adapter,"discover_bills",None)
+    if not discover:
+        raise ValueError(f"Jurisdiction {jurisdiction.upper()} does not support session discovery")
+    result=discover(session,limit=limit)
+    if not ingest:
+        return result
+    ingested=[]
+    failed=[]
+    for item in result.get("bills",[]):
+        try:
+            ingested.append(ingest_jurisdiction(
+                db,jurisdiction,session,item["bill_type"],item["number"]
+            ))
+        except Exception as exc:
+            failed.append({
+                "bill_type":item.get("bill_type"),
+                "number":item.get("number"),
+                "error":str(exc),
+            })
+    return {**result,"ingested":ingested,"failed":failed}
