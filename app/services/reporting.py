@@ -204,7 +204,7 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
             "caveat":"Semantic distance is a review signal only. Broad bills, technical drafting, or legitimately cross-cutting provisions can produce outliers.",
         })
 
-    packet_result=build_bill_packets(db,bill_id,generate_narrative=False,limit=25)
+    packet_result=build_bill_packets(db,bill_id,generate_narrative=False,limit=25,prepare=False)
     packet_rows=[{
         "packet_id":p["packet_id"],
         "section_id":p["section_id"],
