@@ -76,7 +76,7 @@ async function scanWatches(){
   $("scanWatches").disabled=true;
   status("Scanning active watches…");
   try{
-    const result=await api("/watches/scan-all",{method:"POST"});
+    const result=await api("/watches/run-all",{method:"POST"});
     const failed=(result.results||[]).filter(r=>r.status==="failed").length;
     await Promise.all([loadBills(),loadWatchData()]);
     status(failed?`Watch scan completed with ${failed} failure(s).`:"Watch scan completed.","success");
@@ -214,9 +214,9 @@ function activateTab(name){
 
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
 $("billSearch").oninput=renderBillList;
-$("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData()]);await loadWatchData()};
+$("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData()])};
 $("scanWatches").onclick=scanWatches;
 $("watchBill").onclick=watchSelectedBill;
 $("runResearch").onclick=runResearch;
 $("buildReport").onclick=buildReport;
-loadBills();
+Promise.all([loadBills(),loadWatchData()]);
