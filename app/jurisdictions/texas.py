@@ -50,10 +50,19 @@ class TexasTLOAdapter:
     def _session(self,session:str):
         value=session.upper().strip()
         if re.fullmatch(r"\d{2}",value):
-            value+="R"
-        if not re.fullmatch(r"\d{2}[A-Z]",value):
-            raise ValueError("Texas session must look like 89R, 89S, etc.")
-        return value,int(value[:2])
+            return value+"R",int(value),value+"R"
+        regular=re.fullmatch(r"(\d{2})R",value)
+        if regular:
+            return value,int(regular.group(1)),value
+        special_label=re.fullmatch(r"(\d{2})S(\d+)",value)
+        if special_label:
+            legislature,special=special_label.groups()
+            return legislature+special,int(legislature),value
+        compact_special=re.fullmatch(r"(\d{2})(\d+)",value)
+        if compact_special:
+            legislature,special=compact_special.groups()
+            return value,int(legislature),f"{legislature}S{special}"
+        raise ValueError("Texas session must look like 89R, 892, or 89S2.")
 
     def _bill_parts(self,bill_type:str,number:str):
         kind=bill_type.upper().replace(" ","")
@@ -74,7 +83,7 @@ class TexasTLOAdapter:
         return kind,str(n),folder,prefix,group,filename
 
     def _history_path(self,session,bill_type,number):
-        session_code,_=self._session(session)
+        session_code,_,_=self._session(session)
         _,_,folder,_,group,filename=self._bill_parts(bill_type,number)
         return f"/bills/{session_code}/billhistory/{folder}/{group}/{filename}"
 
@@ -116,7 +125,7 @@ class TexasTLOAdapter:
         return [x.strip() for x in (value or "").split(" | ") if x.strip()]
 
     def fetch_bill(self,session:str,bill_type:str,number:str):
-        session_code,session_number=self._session(session)
+        session_code,session_number,session_label=self._session(session)
         kind,number,_,_,_,_=self._bill_parts(bill_type,number)
         history_path=self._history_path(session_code,kind,number)
         raw=self._ftp_bytes(history_path)
@@ -204,7 +213,7 @@ class TexasTLOAdapter:
         }
         return NormalizedBill(
             jurisdiction=self.code,
-            session=session_code,
+            session=session_label,
             session_number=session_number,
             bill_type=kind.lower(),
             bill_number=number,
