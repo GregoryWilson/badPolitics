@@ -133,12 +133,15 @@ def _view(db,row):
         } if packet else None,
     }
 
-def sync_bill_queue(db,bill_id:int,limit:int=50):
+def sync_bill_queue(db,bill_id:int,limit:int=50,prepare:bool=True):
     bill=db.get(Bill,bill_id)
     if not bill:
         raise ValueError("Bill not found")
     packet_result=build_bill_packets(
-        db,bill_id,generate_narrative=False,limit=max(1,min(limit,100))
+        db,bill_id,
+        generate_narrative=False,
+        limit=max(1,min(limit,100)),
+        prepare=prepare,
     )
     now=datetime.utcnow()
     touched=[]
