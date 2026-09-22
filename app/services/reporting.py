@@ -9,6 +9,7 @@ from app.services.metrics import bill_metrics
 from app.services.correlation import correlations_for_bill
 from app.services.fiscal_analysis import run_fiscal_analysis
 from app.services.lineage import build_lineage
+from app.services.scope_analysis import run_scope_analysis
 
 FINDING_LABELS={
     "money":"Explicit monetary amount",
@@ -118,6 +119,7 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
 
     fiscal_analysis=run_fiscal_analysis(db,bill_id)
     lineage=build_lineage(db,bill_id)
+    scope_analysis=run_scope_analysis(db,bill_id)
     for f in fiscal_analysis.get("findings",[]):
         findings.append({
             "category":f["category"],
@@ -173,6 +175,32 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
                 },
             )],
             "caveat":"A later-added or modified provision is a version-history fact. Candidate amendment associations are leads, not proof that an amendment caused the change.",
+        })
+
+    for f in scope_analysis.get("findings",[]):
+        findings.append({
+            "category":f["category"],
+            "title":"Provision scope mismatch review",
+            "statement":f["statement"],
+            "section":f["section_number"],
+            "confidence":round(float(f["confidence"]),2),
+            "evidence":(
+                f'{f["evidence"]} '
+                f'Anchor similarity: {f["anchor_similarity"] if f["anchor_similarity"] is not None else "n/a"}; '
+                f'peer similarity: {f["peer_similarity"]}.'
+            ),
+            "sources":[_source(
+                "scope_finding",
+                f["id"],
+                latest.source_url if latest else None,
+                {
+                    "section_id":f["section_id"],
+                    "section_number":f["section_number"],
+                    "heading":f["heading"],
+                    "divergent_terms":f["metadata"].get("divergent_terms",[]),
+                },
+            )],
+            "caveat":"Semantic distance is a review signal only. Broad bills, technical drafting, or legitimately cross-cutting provisions can produce outliers.",
         })
 
     supporting_documents=db.scalars(
@@ -235,6 +263,10 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
             "event_count":lineage.get("event_count",0),
             "later_change_count":len(later_lineage),
             "interpretation_note":lineage.get("interpretation_note"),
+        },
+        "scope_analysis":{
+            "finding_count":scope_analysis.get("finding_count",0),
+            "interpretation_note":scope_analysis.get("interpretation_note"),
         },
         "research":research_summary,
         "research_steps":research_steps,
