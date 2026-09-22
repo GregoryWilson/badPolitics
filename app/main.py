@@ -14,12 +14,14 @@ from app.services.metrics import bill_metrics
 from app.schemas.evidence import FECCandidateImport,FECReceiptImport,LDAClientImport
 from app.services.external_evidence import import_fec_candidate,import_fec_receipts,import_lda_client
 from app.services.correlation import correlate_bill,correlations_for_bill
+from app.schemas.research import ResearchRunRequest
+from app.services.research import run_bill_research,research_packet
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.6.0")
+app=FastAPI(title="LegisWatch",version="0.7.0")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.6.0"}
+def health(): return {"ok":True,"version":"0.7.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -204,3 +206,27 @@ def bill_correlations(bill_id:int,db:Session=Depends(get_db)):
     if not db.get(Bill,bill_id):
         raise HTTPException(404,"Bill not found")
     return correlations_for_bill(db,bill_id)
+
+
+@app.post("/bills/{bill_id}/research")
+def bill_research(bill_id:int,payload:ResearchRunRequest,db:Session=Depends(get_db)):
+    try:
+        return run_bill_research(
+            db,
+            bill_id,
+            filing_year=payload.filing_year,
+            max_lda_records_per_entity=payload.max_lda_records_per_entity,
+            include_fec_candidate_links=payload.include_fec_candidate_links,
+            include_lda_clients=payload.include_lda_clients,
+        )
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,f"Research orchestration failed: {e}")
+
+@app.get("/research/{run_id}")
+def research_get(run_id:int,db:Session=Depends(get_db)):
+    try:
+        return research_packet(db,run_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
