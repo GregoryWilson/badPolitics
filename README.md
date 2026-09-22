@@ -34,7 +34,7 @@ A graph edge is not an accusation. Each edge stores its evidence, source URL, so
 
 ## MVP-3B
 - objective bill metrics instead of political quality scores
-- explicit dollar amount counts/sums
+- explicit dollar amount counts and sum-of-mentions (not a fiscal score)
 - exemptions, retroactivity, grandfathering, enforcement-limit counts
 - named geography and beneficiary-class counts
 - sponsor/cosponsor/amendment counts
