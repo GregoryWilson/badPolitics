@@ -26,7 +26,8 @@ def ingest_federal(db,congress:int,bill_type:str,number:str):
     if not bill:
         bill=Bill(jurisdiction="US",congress=congress,bill_type=bill_type.lower(),bill_number=str(number)); db.add(bill)
     bill.title=payload.get("title"); bill.latest_action=(payload.get("latestAction") or {}).get("text"); bill.metadata_json=payload; db.flush()
-    versions=(c.text_versions(congress,bill_type,number).get("textVersions") or [])
+    tv=c.text_versions(congress,bill_type,number)
+    versions=tv.get("textVersions") or tv.get("text",{}).get("textVersions") or []
     created=[]
     for v in versions:
         raw,url,fmt=c.download_preferred_text(v); text=normalize_text(raw); sha=hashlib.sha256(text.encode()).hexdigest()
