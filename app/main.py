@@ -399,9 +399,9 @@ def evidence_packet_get(packet_id:int,db:Session=Depends(get_db)):
         raise HTTPException(404,str(e))
 
 @app.post("/bills/{bill_id}/queue/sync")
-def queue_sync_bill(bill_id:int,limit:int=50,db:Session=Depends(get_db)):
+def queue_sync_bill(bill_id:int,limit:int=50,prepare:bool=True,db:Session=Depends(get_db)):
     try:
-        return sync_bill_queue(db,bill_id,limit=limit)
+        return sync_bill_queue(db,bill_id,limit=limit,prepare=prepare)
     except ValueError as e:
         raise HTTPException(404,str(e))
     except Exception as e:
