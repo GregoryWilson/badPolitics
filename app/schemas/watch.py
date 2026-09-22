@@ -3,6 +3,7 @@ from pydantic import BaseModel, Field, model_validator
 class WatchCreate(BaseModel):
     name: str = Field(min_length=1)
     target_type: str
+    jurisdiction: str = "US"
     congress: int | None = None
     bill_type: str | None = None
     bill_number: str | None = None
