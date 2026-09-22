@@ -32,6 +32,14 @@ Evidence-first legislative monitoring and analysis.
 
 A graph edge is not an accusation. Each edge stores its evidence, source URL, source system, extraction method, and confidence. Deterministic text matches are review leads; official records and imported external datasets can carry higher-confidence relationships.
 
+## MVP-3B
+- objective bill metrics instead of political quality scores
+- explicit dollar amount counts and sum-of-mentions (not a fiscal score)
+- exemptions, retroactivity, grandfathering, enforcement-limit counts
+- named geography and beneficiary-class counts
+- sponsor/cosponsor/amendment counts
+- latest-version change magnitude
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -52,6 +60,7 @@ GET  /bills/{bill_id}/diff/latest
 POST /sections/{section_id}/deep-dive
 POST /bills/{bill_id}/graph/sync
 GET  /bills/{bill_id}/graph
+GET  /bills/{bill_id}/metrics
 POST /graph/entities
 GET  /graph/entities/{entity_id}
 POST /graph/relationships

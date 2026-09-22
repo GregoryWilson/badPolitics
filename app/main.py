@@ -10,12 +10,13 @@ from app.services.diffing import summary,unified
 from app.services.llm import deep_dive
 from app.services.graph import sync_bill_graph,graph_for_bill,relationships_for_bill,create_relationship,get_or_create_entity
 from app.schemas.graph import EntityCreate,RelationshipCreate
+from app.services.metrics import bill_metrics
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.3.0")
+app=FastAPI(title="LegisWatch",version="0.4.0")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.3.0"}
+def health(): return {"ok":True,"version":"0.4.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -45,7 +46,7 @@ def findings(bill_id:int,db:Session=Depends(get_db)):
 
 @app.get("/bills/{bill_id}/diff/latest")
 def diff_latest(bill_id:int,db:Session=Depends(get_db)):
-    versions=db.scalars(select(BillVersion).where(BillVersion.bill_id==bill_id).order_by(BillVersion.id.desc())).all()
+    versions=db.scalars(select(BillVersion).where(BillVersion.bill_id==bill_id).order_by(BillVersion.issued_on.desc(),BillVersion.id.desc())).all()
     if len(versions)<2: raise HTTPException(404,"Need at least two versions")
     new,old=versions[0],versions[1]
     return {"old":old.version_code,"new":new.version_code,"summary":summary(old.text,new.text),"diff":unified(old.text,new.text,old.version_code,new.version_code)[:200000]}
@@ -134,3 +135,11 @@ def entity_get(entity_id:int,db:Session=Depends(get_db)):
         "external_ids":entity.external_ids,
         "metadata":entity.metadata_json,
     }
+
+
+@app.get("/bills/{bill_id}/metrics")
+def metrics_get(bill_id:int,db:Session=Depends(get_db)):
+    try:
+        return bill_metrics(db,bill_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))

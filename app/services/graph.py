@@ -89,7 +89,7 @@ def sync_bill_graph(db, bill_id: int):
             confidence=1.0, extraction_method="congress_api",
         )
 
-    latest = db.scalar(select(BillVersion).where(BillVersion.bill_id == bill_id).order_by(BillVersion.id.desc()))
+    latest = db.scalar(select(BillVersion).where(BillVersion.bill_id == bill_id).order_by(BillVersion.issued_on.desc(), BillVersion.id.desc()))
     sections = db.scalars(select(Section).where(Section.version_id == latest.id)).all() if latest else []
 
     for section in sections:
