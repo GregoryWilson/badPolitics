@@ -27,4 +27,4 @@ def test_dashboard_includes_watch_controls_and_change_feed():
     assert 'id="scanWatches"' in html
     assert 'id="changeFeed"' in html
     assert 'api("/watch-events?limit=30")' in js
-    assert 'api("/watches/scan-all"' in js
+    assert 'api("/watches/run-all"' in js
