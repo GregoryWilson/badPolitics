@@ -16,6 +16,11 @@ BENEFICIARY_PATTERNS = [
     re.compile(r"\b(institutions of higher education)\b", re.I),
 ]
 
+ORG_PATTERN = re.compile(
+    r"\b((?:[A-Z][A-Za-z0-9&.'-]*\s+){0,7}[A-Z][A-Za-z0-9&.'-]*\s+"
+    r"(?:Inc\.?|Incorporated|LLC|L\.L\.C\.|Corp\.?|Corporation|Company|Co\.?|Association|Foundation|Institute|Council|Federation|Coalition))\b"
+)
+
 GEO_PATTERN = re.compile(
     r"\b((?:City|Town|County|Parish|Borough|District) of (?:[A-Z][A-Za-z'-]*\s*){1,6}|"
     r"(?:[A-Z][A-Za-z'-]*\s+){1,6}(?:County|Parish|Borough|District))\b"
@@ -105,6 +110,17 @@ def sync_bill_graph(db, bill_id: int):
                     confidence=0.70,
                     metadata={"version": latest.version_code, "section": section.section_number},
                 )
+        for match in ORG_PATTERN.finditer(section.text):
+            name = match.group(1).strip()
+            entity = get_or_create_entity(db, "organization", name)
+            link_entity(
+                db, bill_id, entity, "named_organization",
+                evidence=section.text[max(0, match.start()-180):match.end()+260],
+                section_id=section.id,
+                source_url=latest.source_url,
+                confidence=0.90,
+                metadata={"version": latest.version_code, "section": section.section_number},
+            )
         for match in GEO_PATTERN.finditer(section.text):
             name = match.group(1).strip()
             entity = get_or_create_entity(db, "geography", name)
