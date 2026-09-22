@@ -90,12 +90,6 @@ def _candidate_attributions(amendments,from_version,to_version,new_text):
             confidence=min(0.85,0.50+token_overlap)
             evidence="Amendment action date falls between the compared bill versions and its descriptive text overlaps the changed provision."
             candidates.append((amendment,confidence,evidence,token_overlap,"temporal_text_overlap"))
-        elif temporal:
-            candidates.append((
-                amendment,0.40,
-                "Amendment action date falls between the compared bill versions, but descriptive text does not materially overlap the provision.",
-                token_overlap,"temporal_only",
-            ))
         elif token_overlap>=0.25:
             candidates.append((
                 amendment,min(0.65,0.35+token_overlap),
@@ -156,7 +150,52 @@ def build_lineage(db,bill_id:int):
             continue
 
         prior_version=versions[versions.index(version)-1]
-        all_numbers=sorted(set(previous).union(current))
+        removed_numbers=set(previous)-set(current)
+        introduced_numbers=set(current)-set(previous)
+        renumbered={}
+        used_new=set()
+        for old_number in sorted(removed_numbers):
+            best=None
+            for new_number in sorted(introduced_numbers-used_new):
+                score=difflib.SequenceMatcher(
+                    None,previous[old_number].text,current[new_number].text
+                ).ratio()
+                if score>=0.90 and (best is None or score>best[1]):
+                    best=(new_number,score)
+            if best:
+                renumbered[old_number]=best
+                used_new.add(best[0])
+
+        handled_old=set(renumbered)
+        handled_new=set(used_new)
+        for old_number,(new_number,score) in renumbered.items():
+            old=previous[old_number]
+            new=current[new_number]
+            diff_text=None if old.text==new.text else unified(
+                old.text,new.text,
+                old_name=f"{prior_version.version_code}:section-{old_number}",
+                new_name=f"{version.version_code}:section-{new_number}",
+            )
+            row=ProvisionLineage(
+                bill_id=bill_id,
+                section_number=new_number,
+                from_version_id=prior_version.id,
+                to_version_id=version.id,
+                event_type="renumbered",
+                similarity=round(score,4),
+                old_text=old.text,
+                new_text=new.text,
+                diff_text=diff_text,
+                metadata_json={
+                    "from_version":prior_version.version_code,
+                    "to_version":version.version_code,
+                    "from_section_number":old_number,
+                    "to_section_number":new_number,
+                },
+            )
+            db.add(row); db.flush(); rows.append(row)
+
+        all_numbers=sorted((set(previous).union(current))-handled_old-handled_new)
         for number in all_numbers:
             old=previous.get(number)
             new=current.get(number)
@@ -224,10 +263,16 @@ def lineage_result(db,bill_id:int):
     versions={v.id:v for v in db.scalars(select(BillVersion).where(BillVersion.bill_id==bill_id)).all()}
     amendments={a.id:a for a in db.scalars(select(Amendment).where(Amendment.bill_id==bill_id)).all()}
     rows=db.scalars(
-        select(ProvisionLineage)
-        .where(ProvisionLineage.bill_id==bill_id)
-        .order_by(ProvisionLineage.to_version_id,ProvisionLineage.section_number)
+        select(ProvisionLineage).where(ProvisionLineage.bill_id==bill_id)
     ).all()
+    rows=sorted(
+        rows,
+        key=lambda row:(
+            _version_key(versions[row.to_version_id]),
+            row.section_number,
+            row.id,
+        ),
+    )
     result=[]
     for row in rows:
         attrs=db.scalars(
