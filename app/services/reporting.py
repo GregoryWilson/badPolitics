@@ -10,6 +10,7 @@ from app.services.correlation import correlations_for_bill
 from app.services.fiscal_analysis import run_fiscal_analysis
 from app.services.lineage import build_lineage
 from app.services.scope_analysis import run_scope_analysis
+from app.services.evidence_packets import build_bill_packets
 
 FINDING_LABELS={
     "money":"Explicit monetary amount",
@@ -203,6 +204,16 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
             "caveat":"Semantic distance is a review signal only. Broad bills, technical drafting, or legitimately cross-cutting provisions can produce outliers.",
         })
 
+    packet_result=build_bill_packets(db,bill_id,generate_narrative=False,limit=25)
+    packet_rows=[{
+        "packet_id":p["packet_id"],
+        "section_id":p["section_id"],
+        "section_number":(p["packet"].get("section") or {}).get("number"),
+        "packet_hash":p["packet_hash"],
+        "evidence_count":len((p["packet"] or {}).get("evidence",[])),
+        "has_narrative":bool(p.get("narrative")),
+    } for p in packet_result.get("packets",[])]
+
     supporting_documents=db.scalars(
         select(LegislativeDocument)
         .where(LegislativeDocument.bill_id==bill_id)
@@ -267,6 +278,11 @@ def build_report(db,bill_id:int,research_run_id:int|None=None):
         "scope_analysis":{
             "finding_count":scope_analysis.get("finding_count",0),
             "interpretation_note":scope_analysis.get("interpretation_note"),
+        },
+        "evidence_packets":{
+            "packet_count":len(packet_rows),
+            "packets":packet_rows,
+            "interpretation_note":packet_result.get("interpretation_note"),
         },
         "research":research_summary,
         "research_steps":research_steps,
