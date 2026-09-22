@@ -205,7 +205,7 @@ The analyzer requires at least four substantive sections and uses relative peer 
 - scope-outlier and provision-lineage context
 - candidate amendment associations
 - named entities / beneficiary classes tied to the section
-- external FEC/LDA correlation and relationship context tied to section entities
+- external correlation and relationship context tied to section entities, including FEC/LDA where imported
 - bill-level fiscal/document signals clearly marked as non-section-specific context
 - stable packet hashing that ignores volatile internal database IDs
 - opt-in local-LLM synthesis constrained to packet evidence
