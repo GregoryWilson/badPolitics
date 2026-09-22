@@ -54,6 +54,14 @@ function updateWatchButton(){
   const watched=state.watches.some(w=>w.active&&w.target_type==="bill"&&w.jurisdiction===state.selected.jurisdiction&&w.congress===state.selected.congress&&w.bill_type===state.selected.bill_type&&String(w.bill_number)===String(state.selected.bill_number));
   $("watchBill").textContent=watched?"Watching":"Watch Bill";
   $("watchBill").disabled=watched;
+  const sessionButton=$("watchSession");
+  const canWatchSession=state.selected.jurisdiction!=="US";
+  sessionButton.hidden=!canWatchSession;
+  if(canWatchSession){
+    const sessionWatched=state.watches.some(w=>w.active&&w.target_type==="session"&&w.jurisdiction===state.selected.jurisdiction&&(w.metadata||{}).session===state.selected.session);
+    sessionButton.textContent=sessionWatched?"Session Watched":"Watch Session";
+    sessionButton.disabled=sessionWatched;
+  }
 }
 async function watchSelectedBill(){
   if(!state.selected)return;
@@ -74,6 +82,24 @@ async function watchSelectedBill(){
     status("Bill added to watchlist.","success");
   }catch(e){status("Unable to create watch: "+e.message,"error")}
 }
+async function watchSelectedSession(){
+  if(!state.selected||state.selected.jurisdiction==="US")return;
+  try{
+    const payload={
+      name:`${state.selected.jurisdiction} ${state.selected.session}`,
+      target_type:"session",
+      jurisdiction:state.selected.jurisdiction,
+      congress:state.selected.congress,
+      metadata:{session:state.selected.session,limit:100},
+      auto_research:false,
+      auto_report:false
+    };
+    await api("/watches",{method:"POST",body:JSON.stringify(payload)});
+    await loadWatchData();
+    status("Legislative session added to watchlist.","success");
+  }catch(e){status("Unable to create session watch: "+e.message,"error")}
+}
+
 async function scanWatches(){
   $("scanWatches").disabled=true;
   status("Scanning active watches…");
@@ -229,6 +255,7 @@ $("billSearch").oninput=renderBillList;
 $("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData()])};
 $("scanWatches").onclick=scanWatches;
 $("watchBill").onclick=watchSelectedBill;
+$("watchSession").onclick=watchSelectedSession;
 $("runResearch").onclick=runResearch;
 $("buildReport").onclick=buildReport;
 Promise.all([loadBills(),loadWatchData()]);
