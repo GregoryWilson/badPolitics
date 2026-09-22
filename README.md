@@ -158,7 +158,7 @@ POST /watches
 GET  /watches
 PATCH /watches/{watch_id}
 POST /watches/{watch_id}/scan
-POST /watches/scan-all
+POST /watches/run-all
 GET  /watch-scans/{scan_id}
 GET  /watch-events
 ```
