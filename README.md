@@ -80,6 +80,20 @@ Correlation means two records appear to refer to the same entity based on a docu
 
 Automatic research is deliberately conservative. A person is queried against FEC only when a verified FEC candidate ID is already attached. An organization is queried against LDA only when it was explicitly named in bill text, and only exact normalized client-name matches are retained. Ambiguous cases are skipped rather than guessed.
 
+## MVP-7
+- persisted investigation reports
+- structured finding categories
+- exact bill-section/source provenance
+- external correlation provenance
+- research-run audit context
+- objective metrics embedded in the report
+- explicit caveats and interpretation boundaries
+- no aggregate political/corruption score
+
+### Report semantics
+
+Reports separate factual source records, deterministic review signals, correlations, and caveats. A report can identify reported campaign-finance relationships, lobbying records, narrow beneficiaries, exemptions, retroactivity, spending language, and other review-worthy facts without concluding that a political actor acted improperly.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -112,6 +126,8 @@ POST /bills/{bill_id}/correlate
 GET  /bills/{bill_id}/correlations
 POST /bills/{bill_id}/research
 GET  /research/{run_id}
+POST /bills/{bill_id}/reports
+GET  /reports/{report_id}
 ```
 
 The system extracts review signals and preserves evidence. It does not declare legislation corrupt or politically good/bad. AI explains evidence; source documents establish facts.
