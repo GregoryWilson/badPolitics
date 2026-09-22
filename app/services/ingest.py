@@ -3,7 +3,7 @@ from sqlalchemy import select
 from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment
 from app.services.congress import CongressClient
 from app.services.parser import normalize_text,split_sections
-from app.services.rules import analyze_section
+from app.services.rules import analyze_section\nfrom app.services.graph import sync_bill_graph
 
 def _upsert_related(db,bill,c,congress,bill_type,number):
     for a in c.actions(congress,bill_type,number).get("actions",[]):
