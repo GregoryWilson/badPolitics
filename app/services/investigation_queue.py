@@ -145,7 +145,6 @@ def sync_bill_queue(db,bill_id:int,limit:int=50,prepare:bool=True):
     )
     now=datetime.utcnow()
     touched=[]
-    current_keys=set()
 
     for packet_view in packet_result.get("packets",[]):
         packet=packet_view.get("packet") or {}
@@ -153,8 +152,6 @@ def sync_bill_queue(db,bill_id:int,limit:int=50,prepare:bool=True):
         packet_hash=packet_view["packet_hash"]
         version_id=packet_view["version_id"]
         section_id=packet_view["section_id"]
-        current_keys.add((version_id,section_id,packet_hash))
-
         row=db.scalar(select(InvestigationQueueItem).where(
             InvestigationQueueItem.bill_id==bill_id,
             InvestigationQueueItem.version_id==version_id,
@@ -211,7 +208,9 @@ def sync_bill_queue(db,bill_id:int,limit:int=50,prepare:bool=True):
 
 def list_queue(db,status:str|None=None,jurisdiction:str|None=None,bill_id:int|None=None,limit:int=100):
     query=select(InvestigationQueueItem)
-    if status:
+    if status=="active":
+        query=query.where(InvestigationQueueItem.status.in_(list(ACTIVE_STATUSES)))
+    elif status:
         query=query.where(InvestigationQueueItem.status==status)
     if bill_id is not None:
         query=query.where(InvestigationQueueItem.bill_id==bill_id)
