@@ -173,16 +173,16 @@ Fiscal and document-comparison findings are review signals, not conclusions abou
 
 ## MVP-13
 - persisted provision lineage across stored bill-text versions
-- introduced / modified / removed section events
+- introduced / modified / removed / renumbered section events
 - section-level unified diffs and similarity
-- candidate amendment association using version-date windows and descriptive text overlap
+- candidate amendment association requiring descriptive text overlap, with version-date proximity strengthening confidence
 - amendment sponsor/offerer names preserved when present in source metadata
 - report findings for provisions added or modified after initial text
 - provision-lineage API and dashboard tab
 
 ### Lineage and amendment-attribution semantics
 
-Provision lineage is a version-history fact: it records when a section appears, changes, or disappears across stored bill versions. Amendment attribution is deliberately conservative. Unless an authoritative source directly identifies an amendment as the source of a change, the application labels the relationship as a candidate association. Date proximity or text overlap alone does not establish authorship, intent, or responsibility.
+Provision lineage is a version-history fact: it records when a section appears, changes, or disappears across stored bill versions. Amendment attribution is deliberately conservative. Unless an authoritative source directly identifies an amendment as the source of a change, the application labels the relationship as a candidate association. Date proximity alone is not enough to create an amendment association. Descriptive text overlap can create a candidate lead, and temporal proximity can strengthen it; neither establishes authorship, intent, or responsibility.
 
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
