@@ -78,6 +78,35 @@ def correlate_bill(db, bill_id:int):
     for left in legislative_entities:
         if not left:
             continue
+        direct_rels=db.scalars(select(EntityRelationship).where(
+            ((EntityRelationship.source_entity_id==left.id) | (EntityRelationship.target_entity_id==left.id)),
+            EntityRelationship.source_system.in_(["fec","lda"]),
+        )).all()
+        if direct_rels:
+            existing=db.scalar(select(CorrelationFinding).where(
+                CorrelationFinding.bill_id==bill_id,
+                CorrelationFinding.legislative_entity_id==left.id,
+                CorrelationFinding.matched_entity_id==left.id,
+                CorrelationFinding.match_basis=="direct_external_evidence",
+            ))
+            if not existing:
+                source_systems=sorted({r.source_system for r in direct_rels})
+                row=CorrelationFinding(
+                    bill_id=bill_id,
+                    legislative_entity_id=left.id,
+                    matched_entity_id=left.id,
+                    match_basis="direct_external_evidence",
+                    confidence=1.0,
+                    evidence="The bill-linked entity has directly attached external evidence relationships from: "+", ".join(source_systems)+".",
+                    metadata_json={"source_systems":source_systems,"relationship_ids":[r.id for r in direct_rels]},
+                )
+                db.add(row)
+                db.flush()
+                created.append(row.id)
+
+    for left in legislative_entities:
+        if not left:
+            continue
         for right in candidates:
             if not right or left.id==right.id:
                 continue
