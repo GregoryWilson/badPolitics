@@ -55,6 +55,18 @@ FEC and LDA imports preserve the source record separately from graph relationshi
 
 LDA.gov permits anonymous API use at a lower rate limit. Its terms require downstream users to make clear that the Senate Office of Public Records cannot vouch for analyses after the data are retrieved.
 
+## MVP-5
+- deterministic correlation between bill entities and imported external evidence
+- identifier-backed matches
+- normalized exact-name matches
+- explicitly stored alias matches
+- persistent correlation findings with confidence and evidence
+- no fuzzy string matching and no motive inference
+
+### Correlation semantics
+
+Correlation means two records appear to refer to the same entity based on a documented identifier, exact normalized name, or explicitly stored alias. A correlation does not establish influence, causation, conflict of interest, or wrongdoing.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -83,6 +95,8 @@ POST /evidence/fec/candidate
 POST /evidence/fec/receipts
 POST /evidence/lda/client
 GET  /evidence/records
+POST /bills/{bill_id}/correlate
+GET  /bills/{bill_id}/correlations
 ```
 
 The system extracts review signals and preserves evidence. It does not declare legislation corrupt or politically good/bad. AI explains evidence; source documents establish facts.
