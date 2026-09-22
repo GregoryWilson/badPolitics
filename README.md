@@ -154,6 +154,23 @@ Texas session discovery reads the official TLO `billhistory/history.xml` update 
 
 A fiscal note or bill analysis is treated as source material, not as a negative finding by itself.
 
+## MVP-12
+- deterministic fiscal-impact signals across bill text, fiscal notes, and bill analyses
+- appropriation and dedicated-fund detection
+- tax-credit/exemption/rate-change detection
+- fee/surcharge/assessment change detection
+- required-government implementation signals
+- implementation-cost and revenue-effect signals
+- defined-recipient funding/benefit signals
+- bill-text versus bill-analysis scope comparison
+- fiscal-note versus bill-text amount comparison
+- persisted comparative findings with provenance and confidence
+- fiscal review API, report integration, and dashboard tab
+
+### Fiscal comparison semantics
+
+Fiscal and document-comparison findings are review signals, not conclusions about intent. A bill-analysis scope gap means the deterministic subject signal found in bill text was not explicitly detected in that analysis text. It does not establish concealment or inaccuracy. Likewise, a larger amount in a fiscal note may reflect implementation cost, revenue effects, or accounting context rather than spending directly appropriated by the bill.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -172,6 +189,8 @@ POST /ingest/federal/{congress}/{bill_type}/{number}
 POST /monitor/federal/{congress}?limit=50
 GET  /bills
 GET  /bills/{bill_id}/documents
+POST /bills/{bill_id}/fiscal-analysis
+GET  /bills/{bill_id}/fiscal-analysis
 GET  /bills/{bill_id}/timeline
 GET  /bills/{bill_id}/findings
 GET  /bills/{bill_id}/diff/latest
