@@ -141,7 +141,7 @@ async function selectBill(id){
   $("latestAction").textContent=bill.latest_action||"No latest action recorded.";
   $("report").innerHTML='<div class="notice">Build an investigation report to populate this tab.</div>';
   status("Loading bill details…");
-  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadFiscal(),loadDiff(),loadLineage(),loadScope(),loadGraph()]);
+  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadFiscal(),loadDiff(),loadLineage(),loadScope(),loadPackets(),loadGraph()]);
   status("");
 }
 async function loadMetrics(){
@@ -275,6 +275,56 @@ async function loadScope(){
         <div class="evidence">${esc(f.evidence)}</div>
       </article>`).join(""):'<div class="notice">No strong semantic scope outliers found.</div>'}
   `;
+}
+
+function renderPacketCard(p){
+  const packet=p.packet||{};
+  const section=packet.section||{};
+  const evidence=packet.evidence||[];
+  return `
+    <article class="card">
+      <h3>Section ${esc(section.number||p.section_id)} ${section.heading?`· ${esc(section.heading)}`:""}</h3>
+      <div class="meta"><span>${esc(evidence.length)} evidence entries</span><span>Packet ${esc(p.packet_id)}</span><span>${esc(p.llm_model||"No synthesis")}</span></div>
+      <div class="notice">${esc(packet.interpretation_note||"")}</div>
+      ${p.narrative?`<pre>${esc(p.narrative)}</pre>`:`<button class="synthesize-packet" data-section-id="${esc(p.section_id)}">Generate Local Synthesis</button>`}
+      <details>
+        <summary>Evidence entries</summary>
+        ${evidence.map(e=>`
+          <div class="card">
+            <strong>[${esc(e.evidence_id)}] ${esc((e.kind||"").replaceAll("_"," "))}</strong>
+            <div>${esc(e.summary||"")}</div>
+            <div class="evidence">${esc(e.evidence||"")}</div>
+            ${safeUrl(e.source_url)?`<a class="source-link" target="_blank" rel="noreferrer" href="${esc(safeUrl(e.source_url))}">Source</a>`:""}
+          </div>`).join("")}
+      </details>
+    </article>`;
+}
+function wirePacketButtons(){
+  document.querySelectorAll(".synthesize-packet").forEach(button=>{
+    button.onclick=async()=>{
+      const sectionId=Number(button.dataset.sectionId);
+      button.disabled=true;
+      status("Generating evidence-constrained local synthesis…");
+      try{
+        await api(`/sections/${sectionId}/evidence-packet?generate_narrative=true`,{method:"POST"});
+        await loadPackets();
+        status("Local synthesis generated.","success");
+      }catch(e){status("Synthesis failed: "+e.message,"error")}
+      finally{button.disabled=false}
+    };
+  });
+}
+async function loadPackets(){
+  try{
+    const result=await api(`/bills/${state.selected.id}/evidence-packets?generate_narrative=false&limit=25`,{method:"POST"});
+    $("packets").innerHTML=`
+      <div class="notice">${esc(result.interpretation_note)}</div>
+      ${result.packets.length?result.packets.map(renderPacketCard).join(""):'<div class="notice">No provision evidence packets were generated for this bill.</div>'}
+    `;
+    wirePacketButtons();
+  }catch(e){
+    $("packets").innerHTML='<div class="notice">Evidence packet generation is unavailable.</div>';
+  }
 }
 
 async function loadGraph(){
