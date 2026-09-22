@@ -17,7 +17,7 @@ def test_stable_hash_payload_removes_internal_ids_recursively():
         ],
     }
     stable=_stable_hash_payload(payload)
-    assert "id" in stable["bill"]
+    assert "id" not in stable["bill"]
     assert "section_id" not in stable["section"]
     assert "evidence_id" not in stable["evidence"][0]
     assert "finding_id" not in stable["evidence"][0]["metadata"]
