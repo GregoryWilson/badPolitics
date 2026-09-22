@@ -1,6 +1,7 @@
 from fastapi import FastAPI,Depends,HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
+from pathlib import Path
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.base import Base
@@ -22,7 +23,8 @@ from app.services.reporting import build_report,get_report
 
 Base.metadata.create_all(engine)
 app=FastAPI(title="LegisWatch",version="0.9.0")
-app.mount("/static",StaticFiles(directory="app/static"),name="static")
+STATIC_DIR=Path(__file__).resolve().parent/"static"
+app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
 @app.get("/",include_in_schema=False)
 def dashboard():
