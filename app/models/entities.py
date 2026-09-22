@@ -137,3 +137,16 @@ class EntityRelationship(Base):
     source_system:Mapped[str]=mapped_column(String(64),default="manual")
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
     __table_args__=(UniqueConstraint("source_entity_id","target_entity_id","relation_type","source_url"),)
+
+
+class ExternalEvidenceRecord(Base):
+    __tablename__="external_evidence_records"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    source_system:Mapped[str]=mapped_column(String(64))
+    record_type:Mapped[str]=mapped_column(String(64))
+    external_id:Mapped[str]=mapped_column(String(160))
+    observed_on:Mapped[str|None]=mapped_column(String(32),nullable=True)
+    source_url:Mapped[str|None]=mapped_column(Text,nullable=True)
+    raw_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(UniqueConstraint("source_system","record_type","external_id"),)

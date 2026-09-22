@@ -40,6 +40,21 @@ A graph edge is not an accusation. Each edge stores its evidence, source URL, so
 - sponsor/cosponsor/amendment counts
 - latest-version change magnitude
 
+## MVP-4
+- OpenFEC candidate/committee adapter
+- FEC Schedule A receipt importer
+- LDA.gov LD-1/LD-2 filing adapter
+- raw external evidence record preservation
+- explicit source URLs and record identifiers
+- bounded two-hop relationship traversal for bill graphs
+- no automatic fuzzy matching of politicians to external records
+
+### External evidence semantics
+
+FEC and LDA imports preserve the source record separately from graph relationships. A contribution or lobbying filing establishes the reported transaction/relationship in that filing; it does not establish legislative motive or improper conduct.
+
+LDA.gov permits anonymous API use at a lower rate limit. Its terms require downstream users to make clear that the Senate Office of Public Records cannot vouch for analyses after the data are retrieved.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -64,6 +79,10 @@ GET  /bills/{bill_id}/metrics
 POST /graph/entities
 GET  /graph/entities/{entity_id}
 POST /graph/relationships
+POST /evidence/fec/candidate
+POST /evidence/fec/receipts
+POST /evidence/lda/client
+GET  /evidence/records
 ```
 
 The system extracts review signals and preserves evidence. It does not declare legislation corrupt or politically good/bad. AI explains evidence; source documents establish facts.

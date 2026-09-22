@@ -8,5 +8,8 @@ class Settings(BaseSettings):
     llm_base_url: str = "http://localhost:11434/v1"
     llm_model: str = "qwen3:14b"
     llm_api_key: str = "ollama"
+    fec_api_key: str = ""
+    lda_api_key: str = ""
+    lda_base_url: str = "https://lda.gov/api/v1"
 
 settings = Settings()

@@ -152,14 +152,32 @@ def graph_for_bill(db, bill_id: int):
         })
     return {"bill_id": bill_id, "nodes": list(nodes.values()), "links": links}
 
-def relationships_for_bill(db, bill_id: int):
-    entity_ids = select(LegislativeEntityLink.entity_id).where(LegislativeEntityLink.bill_id == bill_id)
-    rels = db.scalars(select(EntityRelationship).where(or_(
-        EntityRelationship.source_entity_id.in_(entity_ids),
-        EntityRelationship.target_entity_id.in_(entity_ids),
-    ))).all()
+def relationships_for_bill(db, bill_id: int, depth: int = 2):
+    depth=max(1,min(depth,3))
+    seed_ids=set(db.scalars(
+        select(LegislativeEntityLink.entity_id).where(LegislativeEntityLink.bill_id==bill_id)
+    ).all())
+    frontier=set(seed_ids)
+    seen_entities=set(seed_ids)
+    seen_relationships={}
+    for _ in range(depth):
+        if not frontier:
+            break
+        rels=db.scalars(select(EntityRelationship).where(or_(
+            EntityRelationship.source_entity_id.in_(frontier),
+            EntityRelationship.target_entity_id.in_(frontier),
+        ))).all()
+        next_frontier=set()
+        for r in rels:
+            seen_relationships[r.id]=r
+            for entity_id in (r.source_entity_id,r.target_entity_id):
+                if entity_id not in seen_entities:
+                    seen_entities.add(entity_id)
+                    next_frontier.add(entity_id)
+        frontier=next_frontier
+
     result=[]
-    for r in rels:
+    for r in seen_relationships.values():
         source=db.get(EvidenceEntity,r.source_entity_id)
         target=db.get(EvidenceEntity,r.target_entity_id)
         result.append({
@@ -175,7 +193,6 @@ def relationships_for_bill(db, bill_id: int):
             "metadata":r.metadata_json,
         })
     return result
-
 
 def create_relationship(db, source_entity_id: int, target_entity_id: int, relation_type: str,
                         evidence: str, source_url: str | None = None, observed_on: str | None = None,
