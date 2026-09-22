@@ -53,3 +53,9 @@ pre{white-space:pre-wrap;word-break:break-word;background:#080d19;border:1px sol
 .error{color:var(--danger)}
 .success{color:var(--good)}
 @media(max-width:850px){main{grid-template-columns:1fr}aside{border-right:0;border-bottom:1px solid var(--border);max-height:300px}.bill-header{flex-direction:column}}
+
+.change-feed-header{margin-top:22px;padding-top:16px;border-top:1px solid var(--border)}
+.change-feed{display:flex;flex-direction:column;gap:7px;margin-top:10px}
+.change-item{border:1px solid var(--border);background:#0e1527;border-radius:8px;padding:9px;cursor:pointer}
+.change-item:hover{border-color:var(--accent)}
+.change-type{color:var(--warn);font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;margin-bottom:3px}

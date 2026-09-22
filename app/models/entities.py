@@ -196,3 +196,42 @@ class InvestigationReport(Base):
     status:Mapped[str]=mapped_column(String(32),default="complete")
     report_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+
+
+class WatchRule(Base):
+    __tablename__="watch_rules"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    name:Mapped[str]=mapped_column(Text)
+    target_type:Mapped[str]=mapped_column(String(32))
+    jurisdiction:Mapped[str]=mapped_column(String(32),default="US")
+    congress:Mapped[int|None]=mapped_column(Integer,nullable=True)
+    bill_type:Mapped[str|None]=mapped_column(String(16),nullable=True)
+    bill_number:Mapped[str|None]=mapped_column(String(32),nullable=True)
+    active:Mapped[bool]=mapped_column(default=True)
+    auto_research:Mapped[bool]=mapped_column(default=False)
+    auto_report:Mapped[bool]=mapped_column(default=False)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    last_scanned_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+
+class WatchScan(Base):
+    __tablename__="watch_scans"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    watch_rule_id:Mapped[int]=mapped_column(ForeignKey("watch_rules.id",ondelete="CASCADE"))
+    status:Mapped[str]=mapped_column(String(32),default="running")
+    started_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    completed_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    summary_json:Mapped[dict]=mapped_column(JSON,default=dict)
+
+class WatchEvent(Base):
+    __tablename__="watch_events"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    watch_rule_id:Mapped[int]=mapped_column(ForeignKey("watch_rules.id",ondelete="CASCADE"))
+    watch_scan_id:Mapped[int]=mapped_column(ForeignKey("watch_scans.id",ondelete="CASCADE"))
+    bill_id:Mapped[int|None]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"),nullable=True)
+    event_type:Mapped[str]=mapped_column(String(64))
+    event_key:Mapped[str]=mapped_column(String(200))
+    title:Mapped[str]=mapped_column(Text)
+    detail_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(UniqueConstraint("watch_rule_id","event_type","event_key"),)

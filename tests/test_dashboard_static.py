@@ -18,3 +18,13 @@ def test_dashboard_source_links_are_protocol_guarded():
     js=(ROOT/"app/static/app.js").read_text()
     assert 'u.protocol==="http:"||u.protocol==="https:"' in js
     assert "safeUrl(r.source_url)" in js
+
+
+def test_dashboard_includes_watch_controls_and_change_feed():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'id="watchBill"' in html
+    assert 'id="scanWatches"' in html
+    assert 'id="changeFeed"' in html
+    assert 'api("/watch-events?limit=30")' in js
+    assert 'api("/watches/run-all"' in js
