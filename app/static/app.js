@@ -389,8 +389,12 @@ async function loadPackets(){
       ${result.packets.length?result.packets.map(renderPacketCard).join(""):'<div class="notice">No provision evidence packets were generated for this bill.</div>'}
     `;
     wirePacketButtons();
-    await api(`/bills/${state.selected.id}/queue/sync?limit=50&prepare=false`,{method:"POST"});
-    await Promise.all([loadBillQueue(),loadQueueData()]);
+    try{
+      await api(`/bills/${state.selected.id}/queue/sync?limit=50&prepare=false`,{method:"POST"});
+      await Promise.all([loadBillQueue(),loadQueueData()]);
+    }catch(queueError){
+      $("triage").innerHTML='<div class="notice">Evidence packets are available, but queue synchronization failed.</div>';
+    }
   }catch(e){
     $("packets").innerHTML='<div class="notice">Evidence packet generation is unavailable.</div>';
   }
