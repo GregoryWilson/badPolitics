@@ -238,12 +238,51 @@ The queue is an analyst workflow surface, not a political ranking system. Queue 
 
 A changed evidence packet creates a new queue record and active older records are marked `superseded` rather than overwritten, preserving the analyst audit trail.
 
+## MVP-17
+- Alembic migration framework with a frozen MVP-16 baseline revision
+- separate hot-path index revision for queue/evidence growth
+- application startup no longer creates or mutates schema with `Base.metadata.create_all()`
+- strict schema-revision check before background monitoring starts
+- Docker startup runs `alembic upgrade head`
+- guarded legacy-schema adoption for pre-Alembic databases
+- legacy adoption validates every expected table and column before stamping
+- incomplete legacy schemas are refused rather than silently marked current
+- migration regression tests cover fresh databases and legacy adoption
+- CI runs `alembic upgrade head`, `alembic check`, and the application schema check
+
+### Database migration and legacy adoption
+
+Fresh databases are created through Alembic:
+
+```bash
+alembic upgrade head
+```
+
+Databases created by releases before MVP-17 do not have an `alembic_version` table. Before starting the new container against an existing persistent database, run the guarded adoption command once:
+
+```bash
+python -m app.db.migrate adopt-legacy
+```
+
+For Docker Compose with an existing database volume:
+
+```bash
+docker compose run --rm api python -m app.db.migrate adopt-legacy
+docker compose up --build
+```
+
+The adoption command verifies that all MVP-16 tables and required columns exist before stamping revision `0001`; it then applies managed migrations through `head`. If the schema is incomplete, adoption stops and reports the missing tables/columns instead of stamping the database.
+
+After MVP-17, all schema changes should be represented by Alembic revisions. `Base.metadata.create_all()` is no longer an application schema-management mechanism.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
 ```bash
 docker compose up --build
 ```
+
+The API container runs `alembic upgrade head` before starting Uvicorn. Existing pre-MVP-17 volumes must be adopted once as described above.
 
 Open `http://localhost:8000/` for the dashboard or `http://localhost:8000/docs` for the API.
 
