@@ -44,3 +44,13 @@ def test_name_match_rejects_incompatible_types():
     b=entity("Jordan Smith")
     b.entity_type="organization"
     assert _match(a,b) is None
+
+
+def test_external_id_can_match_across_entity_subtypes():
+    a=entity("Candidate Committee",{"fec_committee_id":"C999"})
+    a.entity_type="committee"
+    b=entity("Committee Alias",{"fec_committee_id":"C999"})
+    b.entity_type="organization"
+    basis,confidence,_=_match(a,b)
+    assert basis=="external_id"
+    assert confidence==1.0
