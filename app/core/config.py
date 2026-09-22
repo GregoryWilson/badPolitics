@@ -11,6 +11,6 @@ class Settings(BaseSettings):
     fec_api_key: str = ""
     lda_api_key: str = ""
     lda_base_url: str = "https://lda.gov/api/v1"
-    watch_poll_minutes: int = 0
+    watch_poll_minutes: int = 0\n    texas_ftp_host: str = "ftp.legis.state.tx.us"
 
 settings = Settings()
