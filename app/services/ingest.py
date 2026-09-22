@@ -17,15 +17,18 @@ def _upsert_action(db,bill,action):
         BillAction.action_date==action.date,
         BillAction.text==action.text,
     ))
-    if not existing:
-        db.add(BillAction(
-            bill_id=bill.id,
-            action_date=action.date,
-            text=action.text,
-            action_code=action.code,
-            source_url=action.source_url,
-            raw_json=action.raw,
-        ))
+    if existing:
+        return existing,False
+    row=BillAction(
+        bill_id=bill.id,
+        action_date=action.date,
+        text=action.text,
+        action_code=action.code,
+        source_url=action.source_url,
+        raw_json=action.raw,
+    )
+    db.add(row); db.flush()
+    return row,True
 
 def _upsert_sponsor(db,bill,sponsor):
     q=select(BillSponsor).where(
@@ -92,7 +95,7 @@ def _upsert_document(db,bill,data,document):
         existing.text=text
         existing.sha256=sha
         existing.metadata_json=document.metadata
-        return existing
+        return existing,False
     row=LegislativeDocument(
         bill_id=bill.id,
         document_type=document.document_type,
@@ -106,7 +109,7 @@ def _upsert_document(db,bill,data,document):
         metadata_json=document.metadata,
     )
     db.add(row); db.flush()
-    return row
+    return row,True
 
 def ingest_normalized_bill(db,data:NormalizedBill):
     bill=db.scalar(select(Bill).where(
@@ -185,22 +188,31 @@ def ingest_normalized_bill(db,data:NormalizedBill):
             "format":version.format,
         })
 
+    created_actions=[]
     for action in data.actions:
-        _upsert_action(db,bill,action)
+        row,is_new=_upsert_action(db,bill,action)
+        if is_new:
+            created_actions.append({
+                "id":row.id,
+                "date":row.action_date,
+                "text":row.text,
+                "code":row.action_code,
+            })
     for sponsor in data.sponsors:
         _upsert_sponsor(db,bill,sponsor)
     for amendment in data.amendments:
         _upsert_amendment(db,bill,data,amendment)
-    documents=[]
+    created_documents=[]
     for document in data.documents:
-        row=_upsert_document(db,bill,data,document)
-        documents.append({
-            "id":row.id,
-            "document_type":row.document_type,
-            "description":row.description,
-            "source_url":row.source_url,
-            "sha256":row.sha256,
-        })
+        row,is_new=_upsert_document(db,bill,data,document)
+        if is_new:
+            created_documents.append({
+                "id":row.id,
+                "document_type":row.document_type,
+                "description":row.description,
+                "source_url":row.source_url,
+                "sha256":row.sha256,
+            })
 
     db.commit()
     graph_error=None
@@ -215,7 +227,8 @@ def ingest_normalized_bill(db,data:NormalizedBill):
         "session":data.session,
         "title":bill.title,
         "created_versions":created,
-        "documents":documents,
+        "created_actions":created_actions,
+        "documents":created_documents,
         "graph_sync_error":graph_error,
     }
 
