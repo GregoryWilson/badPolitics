@@ -224,7 +224,29 @@ def _bill_level_fiscal_context(db,bill_id,entries,counter):
             },
         )
 
-def build_section_packet(db,bill_id:int,section_id:int,generate_narrative:bool=False):
+def _stable_hash_payload(value):
+    if isinstance(value,dict):
+        return {
+            key:_stable_hash_payload(item)
+            for key,item in value.items()
+            if not key.endswith("_id") and not key.endswith("_ids")
+        }
+    if isinstance(value,list):
+        return [_stable_hash_payload(item) for item in value]
+    return value
+
+def audit_narrative_citations(narrative:str,evidence_entries:list[dict]):
+    valid_ids={entry["evidence_id"] for entry in evidence_entries}
+    used_ids=set(CITATION_RE.findall(narrative or ""))
+    return {
+        "valid_ids":sorted(valid_ids),
+        "used_ids":sorted(used_ids),
+        "invalid_ids":sorted(used_ids-valid_ids),
+    }
+
+def build_section_packet(
+    db,bill_id:int,section_id:int,generate_narrative:bool=False,prepare:bool=True
+):
     bill=db.get(Bill,bill_id)
     if not bill:
         raise ValueError("Bill not found")
@@ -235,9 +257,10 @@ def build_section_packet(db,bill_id:int,section_id:int,generate_narrative:bool=F
     if not section or section.version_id!=version.id:
         raise ValueError("Section not found in latest bill version")
 
-    build_lineage(db,bill_id)
-    run_fiscal_analysis(db,bill_id)
-    run_scope_analysis(db,bill_id)
+    if prepare:
+        build_lineage(db,bill_id)
+        run_fiscal_analysis(db,bill_id)
+        run_scope_analysis(db,bill_id)
 
     entries=[]
     counter={key:1 for key in ("S","D","Q","L","A","E","C","X","F")}
@@ -325,7 +348,8 @@ def build_section_packet(db,bill_id:int,section_id:int,generate_narrative:bool=F
         "evidence":entries,
         "interpretation_note":"The packet combines source-backed records and deterministic review signals. Correlations and amendment associations do not establish influence, motive, causation, conflict of interest, wrongdoing, or authorship.",
     }
-    canonical=json.dumps(packet,sort_keys=True,separators=(",",":"),ensure_ascii=False)
+    stable_packet=_stable_hash_payload(packet)
+    canonical=json.dumps(stable_packet,sort_keys=True,separators=(",",":"),ensure_ascii=False)
     packet_hash=hashlib.sha256(canonical.encode()).hexdigest()
     existing=db.scalar(select(ProvisionEvidencePacket).where(
         ProvisionEvidencePacket.bill_id==bill_id,
@@ -347,9 +371,8 @@ def build_section_packet(db,bill_id:int,section_id:int,generate_narrative:bool=F
 
     if generate_narrative:
         narrative=synthesize_evidence_packet(packet)
-        valid_ids={entry["evidence_id"] for entry in entries}
-        used_ids=set(CITATION_RE.findall(narrative or ""))
-        invalid=sorted(used_ids-valid_ids)
+        audit=audit_narrative_citations(narrative,entries)
+        invalid=audit["invalid_ids"]
         if invalid:
             row.narrative=(
                 "Narrative rejected because it cited evidence IDs not present in the packet: "
@@ -373,7 +396,11 @@ def build_bill_packets(db,bill_id:int,generate_narrative:bool=False,limit:int=25
     run_scope_analysis(db,bill_id)
     section_ids=sorted(noteworthy_section_ids(db,bill_id,version.id))[:max(1,min(limit,100))]
     packets=[
-        build_section_packet(db,bill_id,section_id,generate_narrative=generate_narrative)
+        build_section_packet(
+            db,bill_id,section_id,
+            generate_narrative=generate_narrative,
+            prepare=False,
+        )
         for section_id in section_ids
     ]
     return {
