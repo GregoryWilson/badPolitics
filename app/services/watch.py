@@ -1,7 +1,7 @@
 from datetime import datetime
 from sqlalchemy import select
 from app.models.entities import (
-    Bill, BillVersion, BillAction, Amendment,
+    Bill, BillVersion, BillAction, Amendment, LegislativeDocument,
     WatchRule, WatchScan, WatchEvent,
 )
 from app.services.ingest import ingest_federal, ingest_jurisdiction, discover_jurisdiction
@@ -22,7 +22,7 @@ def _find_bill(db,congress,bill_type,bill_number,jurisdiction="US"):
 
 def _snapshot_bill(db,bill):
     if not bill:
-        return {"exists":False,"versions":set(),"actions":set(),"amendments":set()}
+        return {"exists":False,"versions":set(),"actions":set(),"amendments":set(),"documents":set()}
     versions=set(db.scalars(select(BillVersion.sha256).where(BillVersion.bill_id==bill.id)).all())
     actions=set(
         f"{a.action_date}|{a.text}"
@@ -32,7 +32,11 @@ def _snapshot_bill(db,bill):
         f"{a.amendment_type}|{a.amendment_number}"
         for a in db.scalars(select(Amendment).where(Amendment.bill_id==bill.id)).all()
     )
-    return {"exists":True,"versions":versions,"actions":actions,"amendments":amendments}
+    documents=set(
+        f"{d.document_type}|{d.source_url}"
+        for d in db.scalars(select(LegislativeDocument).where(LegislativeDocument.bill_id==bill.id)).all()
+    )
+    return {"exists":True,"versions":versions,"actions":actions,"amendments":amendments,"documents":documents}
 
 def _emit(db,watch,scan,bill,event_type,event_key,title,detail):
     existing=db.scalar(select(WatchEvent).where(
@@ -69,6 +73,14 @@ def _diff_events(db,watch,scan,bill,before,after):
             db,watch,scan,bill,"new_action",key,
             f"New legislative action for {bill.bill_type.upper()} {bill.bill_number}",
             {"action_date":date or None,"text":text},
+        )
+        if row: events.append(row)
+    for key in sorted(after["documents"]-before["documents"]):
+        document_type,source_url=key.split("|",1)
+        row=_emit(
+            db,watch,scan,bill,"new_document",key,
+            f'New {document_type.replace("_"," ")} for {bill.bill_type.upper()} {bill.bill_number}',
+            {"document_type":document_type,"source_url":source_url},
         )
         if row: events.append(row)
     for key in sorted(after["amendments"]-before["amendments"]):
@@ -141,6 +153,7 @@ def scan_session_watch(db,watch,scan):
         if not bill:
             continue
         created_versions=ingest_result.get("created_versions") or []
+        created_actions=ingest_result.get("created_actions") or []
         documents=ingest_result.get("documents") or []
         for version in created_versions:
             key=version.get("sha256") or f'{bill_id}:{version.get("version")}'
@@ -148,6 +161,14 @@ def scan_session_watch(db,watch,scan):
                 db,watch,scan,bill,"new_version",key,
                 f"New bill text version detected for {bill.bill_type.upper()} {bill.bill_number}",
                 version,
+            )
+            if row: events.append(row)
+        for action in created_actions:
+            key=f'{action.get("date")}|{action.get("text")}'
+            row=_emit(
+                db,watch,scan,bill,"new_action",key,
+                f"New legislative action for {bill.bill_type.upper()} {bill.bill_number}",
+                action,
             )
             if row: events.append(row)
         for document in documents:
@@ -158,7 +179,7 @@ def scan_session_watch(db,watch,scan):
                 document,
             )
             if row: events.append(row)
-        if (created_versions or documents) and (watch.auto_research or watch.auto_report):
+        if (created_versions or created_actions or documents) and (watch.auto_research or watch.auto_report):
             refreshed[str(bill.id)]=_refresh_outputs(db,watch,bill,events)
     return {
         "discovered_count":len(result.get("bills",[])),
