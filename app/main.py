@@ -298,13 +298,29 @@ async def stop_watch_loop():
 
 @app.post("/watches")
 def watch_create(payload:WatchCreate,db:Session=Depends(get_db)):
+    bill_type=payload.bill_type.lower() if payload.bill_type else None
+    bill_number=str(payload.bill_number) if payload.bill_number else None
+    existing=db.scalar(select(WatchRule).where(
+        WatchRule.target_type==payload.target_type,
+        WatchRule.jurisdiction=="US",
+        WatchRule.congress==payload.congress,
+        WatchRule.bill_type==bill_type,
+        WatchRule.bill_number==bill_number,
+    ))
+    if existing:
+        existing.active=True
+        existing.auto_research=payload.auto_research
+        existing.auto_report=payload.auto_report
+        existing.metadata_json=payload.metadata
+        db.commit(); db.refresh(existing)
+        return _watch_view(existing)
     watch=WatchRule(
         name=payload.name,
         target_type=payload.target_type,
         jurisdiction="US",
         congress=payload.congress,
-        bill_type=payload.bill_type.lower() if payload.bill_type else None,
-        bill_number=str(payload.bill_number) if payload.bill_number else None,
+        bill_type=bill_type,
+        bill_number=bill_number,
         auto_research=payload.auto_research,
         auto_report=payload.auto_report,
         metadata_json=payload.metadata,
