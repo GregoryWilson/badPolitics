@@ -299,3 +299,20 @@ class AmendmentAttribution(Base):
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
     created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
     __table_args__=(UniqueConstraint("lineage_id","amendment_id","attribution_type"),)
+
+
+class ScopeFinding(Base):
+    __tablename__="scope_findings"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    version_id:Mapped[int]=mapped_column(ForeignKey("bill_versions.id",ondelete="CASCADE"))
+    section_id:Mapped[int]=mapped_column(ForeignKey("sections.id",ondelete="CASCADE"))
+    category:Mapped[str]=mapped_column(String(64))
+    confidence:Mapped[float]=mapped_column(Float,default=0)
+    anchor_similarity:Mapped[float|None]=mapped_column(Float,nullable=True)
+    peer_similarity:Mapped[float|None]=mapped_column(Float,nullable=True)
+    statement:Mapped[str]=mapped_column(Text)
+    evidence:Mapped[str]=mapped_column(Text)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(UniqueConstraint("bill_id","version_id","section_id","category"),)

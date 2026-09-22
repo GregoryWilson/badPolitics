@@ -62,3 +62,12 @@ def test_dashboard_supports_provision_lineage():
     assert 'id="lineage"' in html
     assert '/lineage' in js
     assert "Candidate amendment associations" in js
+
+
+def test_dashboard_supports_scope_review():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'data-tab="scope"' in html
+    assert 'id="scope"' in html
+    assert '/scope-analysis' in js
+    assert "Scope Review" in html
