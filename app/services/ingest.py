@@ -118,6 +118,7 @@ def ingest_normalized_bill(db,data:NormalizedBill):
         Bill.bill_type==data.bill_type.lower(),
         Bill.bill_number==str(data.bill_number),
     ))
+    created_bill=bill is None
     if not bill:
         bill=Bill(
             jurisdiction=data.jurisdiction,
@@ -223,6 +224,7 @@ def ingest_normalized_bill(db,data:NormalizedBill):
 
     return {
         "bill_id":bill.id,
+        "created_bill":created_bill,
         "jurisdiction":data.jurisdiction,
         "session":data.session,
         "title":bill.title,
