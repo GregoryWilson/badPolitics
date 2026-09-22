@@ -2,11 +2,12 @@ from fastapi import FastAPI,Depends,HTTPException
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from pathlib import Path
+import asyncio
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.base import Base
-from app.db.session import engine,get_db
-from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity,ExternalEvidenceRecord
+from app.db.session import engine,get_db,SessionLocal
+from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity,ExternalEvidenceRecord,WatchRule
 from app.services.ingest import ingest_federal
 from app.services.monitor import poll_recent_bills
 from app.services.diffing import summary,unified
@@ -20,9 +21,12 @@ from app.services.correlation import correlate_bill,correlations_for_bill
 from app.schemas.research import ResearchRunRequest
 from app.services.research import run_bill_research,research_packet
 from app.services.reporting import build_report,get_report
+from app.schemas.watch import WatchCreate,WatchUpdate
+from app.services.watch import run_watch,run_active_watches,list_events,get_scan
+from app.core.config import settings
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.9.0")
+app=FastAPI(title="LegisWatch",version="1.0.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -31,7 +35,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.9.0"}
+def health(): return {"ok":True,"version":"1.0.0","watch_poll_minutes":settings.watch_poll_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -255,3 +259,102 @@ def report_get(report_id:int,db:Session=Depends(get_db)):
         return get_report(db,report_id)
     except ValueError as e:
         raise HTTPException(404,str(e))
+
+
+_watch_task=None
+
+async def _watch_loop():
+    interval=max(1,int(settings.watch_poll_minutes))*60
+    while True:
+        try:
+            await asyncio.to_thread(_run_all_watches_background)
+        except Exception:
+            pass
+        await asyncio.sleep(interval)
+
+def _run_all_watches_background():
+    db=SessionLocal()
+    try:
+        return run_active_watches(db)
+    finally:
+        db.close()
+
+@app.on_event("startup")
+async def start_watch_loop():
+    global _watch_task
+    if settings.watch_poll_minutes>0 and _watch_task is None:
+        _watch_task=asyncio.create_task(_watch_loop())
+
+@app.on_event("shutdown")
+async def stop_watch_loop():
+    global _watch_task
+    if _watch_task:
+        _watch_task.cancel()
+        try:
+            await _watch_task
+        except asyncio.CancelledError:
+            pass
+        _watch_task=None
+
+@app.post("/watches")
+def watch_create(payload:WatchCreate,db:Session=Depends(get_db)):
+    watch=WatchRule(
+        name=payload.name,
+        target_type=payload.target_type,
+        jurisdiction="US",
+        congress=payload.congress,
+        bill_type=payload.bill_type.lower() if payload.bill_type else None,
+        bill_number=str(payload.bill_number) if payload.bill_number else None,
+        auto_research=payload.auto_research,
+        auto_report=payload.auto_report,
+        metadata_json=payload.metadata,
+    )
+    db.add(watch); db.commit(); db.refresh(watch)
+    return _watch_view(watch)
+
+@app.get("/watches")
+def watch_list(active_only:bool=False,db:Session=Depends(get_db)):
+    q=select(WatchRule).order_by(WatchRule.id)
+    if active_only:
+        q=q.where(WatchRule.active==True)
+    return [_watch_view(w) for w in db.scalars(q).all()]
+
+@app.patch("/watches/{watch_id}")
+def watch_update(watch_id:int,payload:WatchUpdate,db:Session=Depends(get_db)):
+    watch=db.get(WatchRule,watch_id)
+    if not watch: raise HTTPException(404,"Watch rule not found")
+    for field in ("active","auto_research","auto_report"):
+        value=getattr(payload,field)
+        if value is not None: setattr(watch,field,value)
+    db.commit(); db.refresh(watch)
+    return _watch_view(watch)
+
+@app.post("/watches/{watch_id}/scan")
+def watch_scan(watch_id:int,db:Session=Depends(get_db)):
+    try: return run_watch(db,watch_id)
+    except ValueError as e: raise HTTPException(404,str(e))
+    except Exception as e: raise HTTPException(502,f"Watch scan failed: {e}")
+
+@app.post("/watches/scan-all")
+def watch_scan_all(db:Session=Depends(get_db)):
+    return {"results":run_active_watches(db)}
+
+@app.get("/watch-scans/{scan_id}")
+def watch_scan_get(scan_id:int,db:Session=Depends(get_db)):
+    try: return get_scan(db,scan_id)
+    except ValueError as e: raise HTTPException(404,str(e))
+
+@app.get("/watch-events")
+def watch_events(watch_rule_id:int|None=None,limit:int=100,db:Session=Depends(get_db)):
+    return list_events(db,watch_rule_id,limit)
+
+def _watch_view(watch):
+    return {
+        "id":watch.id,"name":watch.name,"target_type":watch.target_type,
+        "jurisdiction":watch.jurisdiction,"congress":watch.congress,
+        "bill_type":watch.bill_type,"bill_number":watch.bill_number,
+        "active":watch.active,"auto_research":watch.auto_research,
+        "auto_report":watch.auto_report,"metadata":watch.metadata_json,
+        "created_at":watch.created_at.isoformat() if watch.created_at else None,
+        "last_scanned_at":watch.last_scanned_at.isoformat() if watch.last_scanned_at else None,
+    }
