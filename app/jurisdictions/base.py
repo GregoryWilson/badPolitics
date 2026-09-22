@@ -24,6 +24,7 @@ class NormalizedSponsor:
     role: str
     external_id: str | None = None
     party: str | None = None
+    state: str | None = None
     district: str | None = None
     raw: dict = field(default_factory=dict)
 
