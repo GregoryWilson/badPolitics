@@ -98,3 +98,42 @@ class Finding(Base):
     evidence:Mapped[str]=mapped_column(Text)
     metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
     version=relationship("BillVersion",back_populates="findings")
+
+
+class EvidenceEntity(Base):
+    __tablename__="evidence_entities"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    entity_type:Mapped[str]=mapped_column(String(32))
+    canonical_name:Mapped[str]=mapped_column(Text)
+    normalized_name:Mapped[str]=mapped_column(Text)
+    external_ids:Mapped[dict]=mapped_column(JSON,default=dict)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    __table_args__=(UniqueConstraint("entity_type","normalized_name"),)
+
+class LegislativeEntityLink(Base):
+    __tablename__="legislative_entity_links"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    bill_id:Mapped[int]=mapped_column(ForeignKey("bills.id",ondelete="CASCADE"))
+    section_id:Mapped[int|None]=mapped_column(ForeignKey("sections.id",ondelete="CASCADE"),nullable=True)
+    entity_id:Mapped[int]=mapped_column(ForeignKey("evidence_entities.id",ondelete="CASCADE"))
+    link_type:Mapped[str]=mapped_column(String(64))
+    evidence:Mapped[str]=mapped_column(Text)
+    source_url:Mapped[str|None]=mapped_column(Text,nullable=True)
+    confidence:Mapped[float]=mapped_column(Float,default=1.0)
+    extraction_method:Mapped[str]=mapped_column(String(64),default="deterministic")
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    __table_args__=(UniqueConstraint("bill_id","section_id","entity_id","link_type"),)
+
+class EntityRelationship(Base):
+    __tablename__="entity_relationships"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    source_entity_id:Mapped[int]=mapped_column(ForeignKey("evidence_entities.id",ondelete="CASCADE"))
+    target_entity_id:Mapped[int]=mapped_column(ForeignKey("evidence_entities.id",ondelete="CASCADE"))
+    relation_type:Mapped[str]=mapped_column(String(64))
+    evidence:Mapped[str]=mapped_column(Text)
+    source_url:Mapped[str|None]=mapped_column(Text,nullable=True)
+    observed_on:Mapped[str|None]=mapped_column(String(32),nullable=True)
+    confidence:Mapped[float]=mapped_column(Float,default=1.0)
+    source_system:Mapped[str]=mapped_column(String(64),default="manual")
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    __table_args__=(UniqueConstraint("source_entity_id","target_entity_id","relation_type","source_url"),)
