@@ -82,11 +82,18 @@ def _section_entity_context(db,bill_id,section_id,entries,counter):
             LegislativeEntityLink.section_id==section_id,
         )
     ).all()
-    entity_ids=set()
+    link_rows=[]
     for link in links:
         entity=db.get(EvidenceEntity,link.entity_id)
-        if not entity:
-            continue
+        if entity:
+            link_rows.append((link,entity))
+    link_rows.sort(key=lambda item:(
+        item[0].link_type,
+        item[1].normalized_name or item[1].canonical_name.casefold(),
+        item[0].evidence,
+    ))
+    entity_ids=set()
+    for link,entity in link_rows:
         entity_ids.add(entity.id)
         _append(
             entries,"E",counter,link.link_type,
@@ -109,11 +116,19 @@ def _section_entity_context(db,bill_id,section_id,entries,counter):
             CorrelationFinding.legislative_entity_id.in_(entity_ids),
         )
     ).all()
+    correlation_rows=[]
     for corr in correlations:
         left=db.get(EvidenceEntity,corr.legislative_entity_id)
         right=db.get(EvidenceEntity,corr.matched_entity_id)
-        if not left or not right:
-            continue
+        if left and right:
+            correlation_rows.append((corr,left,right))
+    correlation_rows.sort(key=lambda item:(
+        item[0].match_basis,
+        item[1].normalized_name or item[1].canonical_name.casefold(),
+        item[2].normalized_name or item[2].canonical_name.casefold(),
+        item[0].evidence,
+    ))
+    for corr,left,right in correlation_rows:
         relationship_ids=(corr.metadata_json or {}).get("relationship_ids") or []
         _append(
             entries,"C",counter,"external_correlation",
@@ -136,7 +151,15 @@ def _section_entity_context(db,bill_id,section_id,entries,counter):
         )
         if relationship_ids:
             rel_query=rel_query.where(EntityRelationship.id.in_(relationship_ids))
-        for rel in db.scalars(rel_query).all():
+        rels=db.scalars(rel_query).all()
+        rels=sorted(rels,key=lambda rel:(
+            rel.source_system,
+            rel.relation_type,
+            rel.observed_on or "",
+            rel.source_url or "",
+            rel.evidence,
+        ))
+        for rel in rels:
             _append(
                 entries,"X",counter,"external_relationship",
                 f"External source records relationship type {rel.relation_type}.",
@@ -305,7 +328,7 @@ def build_section_packet(
             ScopeFinding.bill_id==bill_id,
             ScopeFinding.version_id==version.id,
             ScopeFinding.section_id==section.id,
-        )
+        ).order_by(ScopeFinding.category,ScopeFinding.confidence.desc())
     ).all():
         _append(
             entries,"Q",counter,"scope_finding",
