@@ -4,6 +4,7 @@ Revision ID: 0002
 Revises: 0001
 """
 from alembic import op
+import sqlalchemy as sa
 
 revision="0002"
 down_revision="0001"
@@ -24,10 +25,15 @@ INDEXES=[
     ("ix_queue_bill_status_updated","investigation_queue_items",["bill_id","status","updated_at"]),
 ]
 
+def _existing_indexes(table):
+    return {row["name"] for row in sa.inspect(op.get_bind()).get_indexes(table)}
+
 def upgrade():
     for name,table,columns in INDEXES:
-        op.create_index(name,table,columns,unique=False)
+        if name not in _existing_indexes(table):
+            op.create_index(name,table,columns,unique=False)
 
 def downgrade():
     for name,table,_ in reversed(INDEXES):
-        op.drop_index(name,table_name=table)
+        if name in _existing_indexes(table):
+            op.drop_index(name,table_name=table)
