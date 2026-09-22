@@ -3,11 +3,11 @@ from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.base import Base
 from app.db.session import engine,get_db
-from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EntityRelationship
+from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment,EvidenceEntity
 from app.services.ingest import ingest_federal
 from app.services.monitor import poll_recent_bills
 from app.services.diffing import summary,unified
-from app.services.llm import deep_dive\nfrom app.services.graph import sync_bill_graph,graph_for_bill,relationships_for_bill,create_relationship\nfrom app.schemas.graph import RelationshipCreate
+from app.services.llm import deep_dive\nfrom app.services.graph import sync_bill_graph,graph_for_bill,relationships_for_bill,create_relationship,get_or_create_entity\nfrom app.schemas.graph import EntityCreate,RelationshipCreate
 
 Base.metadata.create_all(engine)
 app=FastAPI(title="LegisWatch",version="0.3.0")
@@ -99,4 +99,36 @@ def relationship_create(payload:RelationshipCreate,db:Session=Depends(get_db)):
         "confidence":r.confidence,
         "source_system":r.source_system,
         "metadata":r.metadata_json,
+    }
+
+
+@app.post("/graph/entities")
+def entity_create(payload:EntityCreate,db:Session=Depends(get_db)):
+    entity=get_or_create_entity(
+        db,
+        payload.entity_type,
+        payload.canonical_name,
+        payload.external_ids,
+        payload.metadata,
+    )
+    db.commit()
+    db.refresh(entity)
+    return {
+        "id":entity.id,
+        "type":entity.entity_type,
+        "name":entity.canonical_name,
+        "external_ids":entity.external_ids,
+        "metadata":entity.metadata_json,
+    }
+
+@app.get("/graph/entities/{entity_id}")
+def entity_get(entity_id:int,db:Session=Depends(get_db)):
+    entity=db.get(EvidenceEntity,entity_id)
+    if not entity: raise HTTPException(404,"Entity not found")
+    return {
+        "id":entity.id,
+        "type":entity.entity_type,
+        "name":entity.canonical_name,
+        "external_ids":entity.external_ids,
+        "metadata":entity.metadata_json,
     }
