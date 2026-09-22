@@ -4,7 +4,7 @@ from app.models.entities import (
     Bill, BillVersion, BillAction, Amendment,
     WatchRule, WatchScan, WatchEvent,
 )
-from app.services.ingest import ingest_federal
+from app.services.ingest import ingest_federal, ingest_jurisdiction
 from app.services.monitor import poll_recent_bills
 from app.services.research import run_bill_research
 from app.services.reporting import build_report
@@ -103,7 +103,7 @@ def scan_bill_watch(db,watch,scan):
     events=[]
     if not before["exists"] and bill:
         row=_emit(
-            db,watch,scan,bill,"bill_discovered",_bill_key(watch.congress,watch.bill_type,watch.bill_number),
+            db,watch,scan,bill,"bill_discovered",_bill_key(watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction),
             f"Bill added to local store: {bill.bill_type.upper()} {bill.bill_number}",
             {"title":bill.title},
         )
