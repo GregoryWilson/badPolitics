@@ -1,5 +1,11 @@
 from pydantic import BaseModel, Field
 
+class EntityCreate(BaseModel):
+    entity_type: str = Field(min_length=1, max_length=32)
+    canonical_name: str = Field(min_length=1)
+    external_ids: dict = Field(default_factory=dict)
+    metadata: dict = Field(default_factory=dict)
+
 class RelationshipCreate(BaseModel):
     source_entity_id: int
     target_entity_id: int
