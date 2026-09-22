@@ -141,7 +141,7 @@ async function selectBill(id){
   $("latestAction").textContent=bill.latest_action||"No latest action recorded.";
   $("report").innerHTML='<div class="notice">Build an investigation report to populate this tab.</div>';
   status("Loading bill details…");
-  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadFiscal(),loadDiff(),loadLineage(),loadGraph()]);
+  await Promise.allSettled([loadMetrics(),loadFindings(),loadTimeline(),loadDocuments(),loadFiscal(),loadDiff(),loadLineage(),loadScope(),loadGraph()]);
   status("");
 }
 async function loadMetrics(){
@@ -250,6 +250,30 @@ async function loadLineage(){
         `:""}
         ${e.diff?`<pre>${esc(e.diff)}</pre>`:""}
       </article>`).join(""):'<div class="notice">No later provision changes detected across stored versions.</div>'}
+  `;
+}
+
+async function loadScope(){
+  let result;
+  try{
+    result=await api(`/bills/${state.selected.id}/scope-analysis`,{method:"POST"});
+  }catch(e){
+    $("scope").innerHTML='<div class="notice">Scope analysis is unavailable.</div>';
+    return;
+  }
+  $("scope").innerHTML=`
+    <div class="notice">${esc(result.interpretation_note)}</div>
+    ${result.findings.length?result.findings.map(f=>`
+      <article class="card">
+        <h3>Section ${esc(f.section_number)} · ${esc(f.category.replaceAll("_"," "))}</h3>
+        <div class="meta">
+          <span>Confidence ${esc(Number(f.confidence).toFixed(2))}</span>
+          <span>Anchor similarity ${esc(f.anchor_similarity===null?"n/a":f.anchor_similarity)}</span>
+          <span>Peer similarity ${esc(f.peer_similarity)}</span>
+        </div>
+        <div>${esc(f.statement)}</div>
+        <div class="evidence">${esc(f.evidence)}</div>
+      </article>`).join(""):'<div class="notice">No strong semantic scope outliers found.</div>'}
   `;
 }
 
