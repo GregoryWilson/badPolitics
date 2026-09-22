@@ -152,6 +152,14 @@ def scan_session_watch(db,watch,scan):
         bill=db.get(Bill,bill_id)
         if not bill:
             continue
+        if ingest_result.get("created_bill"):
+            key=_bill_key(bill.congress,bill.bill_type,bill.bill_number,bill.jurisdiction)
+            row=_emit(
+                db,watch,scan,bill,"bill_discovered",key,
+                f"Newly monitored bill: {bill.bill_type.upper()} {bill.bill_number}",
+                {"title":bill.title,"session":session},
+            )
+            if row: events.append(row)
         created_versions=ingest_result.get("created_versions") or []
         created_actions=ingest_result.get("created_actions") or []
         documents=ingest_result.get("documents") or []
