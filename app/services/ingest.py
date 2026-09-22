@@ -3,7 +3,8 @@ from sqlalchemy import select
 from app.models.entities import Bill,BillVersion,Section,Finding,BillAction,BillSponsor,Amendment
 from app.services.congress import CongressClient
 from app.services.parser import normalize_text,split_sections
-from app.services.rules import analyze_section\nfrom app.services.graph import sync_bill_graph
+from app.services.rules import analyze_section
+from app.services.graph import sync_bill_graph
 
 def _upsert_related(db,bill,c,congress,bill_type,number):
     for a in c.actions(congress,bill_type,number).get("actions",[]):
@@ -39,4 +40,9 @@ def ingest_federal(db,congress:int,bill_type:str,number:str):
             for f in analyze_section(s): db.add(Finding(version_id=bv.id,section_id=sec.id,kind=f["kind"],severity=f["severity"],label=f["label"],evidence=f["evidence"],metadata_json=f.get("metadata",{})))
         created.append({"version":code,"sha256":sha,"source_url":url,"format":fmt})
     _upsert_related(db,bill,c,congress,bill_type,number); db.commit()
-    return {"bill_id":bill.id,"title":bill.title,"created_versions":created}
+    graph_error=None
+    try:
+        sync_bill_graph(db,bill.id)
+    except Exception as exc:
+        graph_error=str(exc)
+    return {"bill_id":bill.id,"title":bill.title,"created_versions":created,"graph_sync_error":graph_error}
