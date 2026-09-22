@@ -1,4 +1,6 @@
 from fastapi import FastAPI,Depends,HTTPException
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import RedirectResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.base import Base
@@ -19,10 +21,15 @@ from app.services.research import run_bill_research,research_packet
 from app.services.reporting import build_report,get_report
 
 Base.metadata.create_all(engine)
-app=FastAPI(title="LegisWatch",version="0.8.0")
+app=FastAPI(title="LegisWatch",version="0.9.0")
+app.mount("/static",StaticFiles(directory="app/static"),name="static")
+
+@app.get("/",include_in_schema=False)
+def dashboard():
+    return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"0.8.0"}
+def health(): return {"ok":True,"version":"0.9.0"}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
