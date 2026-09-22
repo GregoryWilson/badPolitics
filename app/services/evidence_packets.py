@@ -159,11 +159,14 @@ def _lineage_context(db,bill_id,version,section,entries,counter):
         ).order_by(ProvisionLineage.to_version_id,ProvisionLineage.id)
     ).all()
     for event in events:
+        target_version=db.get(BillVersion,event.to_version_id)
+        target_code=target_version.version_code if target_version else str(event.to_version_id)
+        target_url=target_version.source_url if target_version else version.source_url
         lid=_append(
             entries,"L",counter,"provision_lineage",
-            f"Section {section.section_number} was {event.event_type} in version {version.version_code}.",
+            f"Section {section.section_number} was {event.event_type} in version {target_code}.",
             event.diff_text or event.new_text or event.old_text or "",
-            version.source_url,
+            target_url,
             {
                 "lineage_id":event.id,
                 "event_type":event.event_type,
