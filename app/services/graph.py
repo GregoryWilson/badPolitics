@@ -17,8 +17,8 @@ BENEFICIARY_PATTERNS = [
 ]
 
 GEO_PATTERN = re.compile(
-    r"\b((?:City|Town|County|Parish|Borough|District) of [A-Z][A-Za-z .'-]{2,60}|"
-    r"[A-Z][A-Za-z .'-]{2,50} (?:County|Parish|Borough|District))\b"
+    r"\b((?:City|Town|County|Parish|Borough|District) of (?:[A-Z][A-Za-z'-]*\s*){1,6}|"
+    r"(?:[A-Z][A-Za-z'-]*\s+){1,6}(?:County|Parish|Borough|District))\b"
 )
 
 def normalize_name(value: str) -> str:
