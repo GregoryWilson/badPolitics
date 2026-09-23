@@ -114,3 +114,15 @@ def test_discovery_run_is_non_blocking_and_live_polled():
     assert 'Discovery started. Showing live progress.' in js
     assert '@app.post("/discovery/run",status_code=202)' in main
     assert 'asyncio.create_task(_run_discovery_once())' in main
+
+
+def test_dashboard_supports_civic_analysis_workspace():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'id="civicView"' in html
+    assert 'id="civicFindings"' in html
+    assert 'id="civicAgendaItems"' in html
+    assert 'id="civicEntities"' in html
+    assert '/civic-documents/"+id+"/analysis' in js
+    assert '/civic-documents/"+id+"/analyze' in js
+    assert "Civic review signals" in html
