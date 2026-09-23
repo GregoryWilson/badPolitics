@@ -84,7 +84,7 @@ def bills(db:Session=Depends(get_db)):
     return [{
         "id":b.id,
         "jurisdiction":b.jurisdiction,
-        "session":(b.metadata_json or {}).get("jurisdiction_session") or str(b.congress),
+        "session":b.session_code or (b.metadata_json or {}).get("jurisdiction_session") or str(b.congress),
         "congress":b.congress,
         "bill_type":b.bill_type,
         "bill_number":b.bill_number,
