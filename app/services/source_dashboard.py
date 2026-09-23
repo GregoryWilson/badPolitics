@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime,timedelta,date
 from sqlalchemy import select
 
-from app.models.entities import Bill,BillAction,BillVersion,CivicDocument,CivicFinding,CivicAgendaItem
+from app.models.entities import Bill,BillAction,BillVersion,CivicDocument,CivicDocumentRevision,CivicFinding,CivicAgendaItem
 from app.services.civic_sources import CIVIC_SOURCES
 
 SOURCE_GROUPS=[
@@ -126,14 +126,26 @@ def _civic_week(db,group,start,end,limit):
         else:
             continue
 
+        revision=db.scalar(
+            select(CivicDocumentRevision)
+            .where(CivicDocumentRevision.civic_document_id==doc.id)
+            .order_by(CivicDocumentRevision.observed_at.desc(),CivicDocumentRevision.id.desc())
+        )
+        revision_id=revision.id if revision else None
         findings=db.scalars(
             select(CivicFinding)
-            .where(CivicFinding.civic_document_id==doc.id)
+            .where(
+                CivicFinding.civic_document_id==doc.id,
+                CivicFinding.revision_id==revision_id,
+            )
             .order_by(CivicFinding.id)
         ).all()
         agenda=db.scalars(
             select(CivicAgendaItem)
-            .where(CivicAgendaItem.civic_document_id==doc.id)
+            .where(
+                CivicAgendaItem.civic_document_id==doc.id,
+                CivicAgendaItem.revision_id==revision_id,
+            )
             .order_by(CivicAgendaItem.ordinal)
             .limit(100)
         ).all()
