@@ -138,7 +138,7 @@ class TexasTLOAdapter:
         }[prefix]
         return {"bill_type":kind,"number":str(int(number)),"filename":name}
 
-    def parse_history_index(self,raw:bytes,limit:int=100):
+    def parse_history_index(self,raw:bytes,limit:int=10000):
         text=raw.decode("utf-8","ignore")
         found=[]
         seen=set()
@@ -164,16 +164,22 @@ class TexasTLOAdapter:
                 break
         return found
 
-    def discover_bills(self,session:str,limit:int=100):
+    def discover_bills(self,session:str,limit:int=100,offset:int=0):
         session_code,session_number,session_label=self._session(session)
         raw=self._ftp_bytes(f"/bills/{session_code}/billhistory/history.xml")
-        bills=self.parse_history_index(raw,limit=max(1,min(limit,500)))
+        all_bills=self.parse_history_index(raw,limit=100000)
+        offset=max(0,int(offset))
+        limit=max(1,min(limit,500))
+        bills=all_bills[offset:offset+limit]
         return {
             "jurisdiction":"TX",
             "session":session_label,
             "session_number":session_number,
             "source_url":f"ftp://{self.ftp_host}/bills/{session_code}/billhistory/history.xml",
             "bills":bills,
+            "offset":offset,
+            "total":len(all_bills),
+            "next_offset":offset+len(bills) if offset+len(bills)<len(all_bills) else None,
         }
 
     def _documents(self,root):
