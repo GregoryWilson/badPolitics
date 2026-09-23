@@ -3,7 +3,7 @@ from collections import defaultdict
 from datetime import datetime,timedelta,date
 from sqlalchemy import select
 
-from app.models.entities import Bill,BillAction,CivicDocument,CivicFinding,CivicAgendaItem
+from app.models.entities import Bill,BillAction,BillVersion,CivicDocument,CivicFinding,CivicAgendaItem
 from app.services.civic_sources import CIVIC_SOURCES
 
 SOURCE_GROUPS=[
@@ -212,9 +212,11 @@ def _legislative_week(db,group,start,end,limit):
         category=_bill_topic(bill)
         source_url=action.source_url
         if not source_url:
-            version=db.scalar(select(__import__("app.models.entities",fromlist=["BillVersion"]).BillVersion).where(
-                __import__("app.models.entities",fromlist=["BillVersion"]).BillVersion.bill_id==bill.id
-            ).order_by(__import__("app.models.entities",fromlist=["BillVersion"]).BillVersion.id.desc()))
+            version=db.scalar(
+                select(BillVersion)
+                .where(BillVersion.bill_id==bill.id)
+                .order_by(BillVersion.id.desc())
+            )
             source_url=version.source_url if version else None
         items.append({
             "kind":"bill",
