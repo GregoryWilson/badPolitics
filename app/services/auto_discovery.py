@@ -158,7 +158,6 @@ def discover_civic_source(db,source_key,limit=None):
             "analysis_results":analyses,
             "analysis_completed_count":sum(1 for row in analyses if row.get("status")=="completed"),
             "analysis_failed_count":sum(1 for row in analyses if row.get("status")=="failed"),
-            **result,
             "source_key":f"civic:{source_key}",
             "jurisdiction":source["jurisdiction"],
             "governing_body":source["governing_body"],
