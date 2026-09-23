@@ -26,6 +26,7 @@ SECTION_RE=re.compile(
 CITY_HALL_CONTACT_RE=re.compile(
     r"(?:^3815\s*(?:-\s*b)?\s*sachse\s*(?:road|rd)\b|"
     r"^sachse\s*(?:road|rd)\s*,?\s*building\s*b\b|"
+    r"^\(?\d{3}\)?[. -]\d{3}[. -]\d{4}\b|"
     r"^(?:contact us|hours|phone|fax|helpful links)\b)",re.I,
 )
 

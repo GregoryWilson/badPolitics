@@ -11,6 +11,7 @@ def test_agenda_parser_does_not_treat_city_hall_address_as_an_item():
     rows=_extract_items("""3815 Sachse Road, Building B
 Sachse, TX 75048
 Phone: 972.495.1212
+972.495.1212
 C. Consent Agenda
 C1. Consider approval of a street repair contract with Acme.
 D. Action Resulting from Executive Action
