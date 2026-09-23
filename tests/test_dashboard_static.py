@@ -147,6 +147,7 @@ def test_dashboard_supports_weekly_institution_summary():
     assert 'id="weeklyCategories"' in html
     assert 'id="showWeekly"' in html
     assert 'api("/dashboard/sources")' in js
-    assert 'api("/dashboard/weekly/"+encodeURIComponent(state.selectedWeeklySource))' in js
+    assert 'api("/dashboard/weekly/"+encodeURIComponent(source)+"?limit=50",{signal:controller.signal})' in js
+    assert 'request!==weeklyRequestSequence' in js
     assert "What's happening this week in " in js
     assert '@app.get("/dashboard/weekly/{source_id}")' in main

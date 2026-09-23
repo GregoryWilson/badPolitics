@@ -117,10 +117,8 @@ CIVIC_SOURCES=[
         "source_key":"collin_commissioners",
         "jurisdiction":"TX-local",
         "governing_body":"Collin County Commissioners Court",
-        "kind":"html",
-        "root_url":"https://www.collincountytx.gov/Government/Commissioners-Court/agendas",
-        "allow_domains":["collincountytx.gov","www.collincountytx.gov","apps2.collincountytx.gov","eagenda.collincountytx.gov"],
-        "keywords":["agenda","meeting","notice","commissioners","court","public hearing","order","budget"],
+        "kind":"collin_eagenda",
+        "root_url":"https://eagenda.collincountytx.gov/agenda_publish.cfm",
         "priority":"normal",
     },
     {

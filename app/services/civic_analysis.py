@@ -47,7 +47,7 @@ SIGNALS=[
         r"\bplat\b",r"\bland use\b",r"\bcomprehensive plan\b",r"\bdevelopment agreement\b",
     ]),
     ("procurement_contract",[
-        r"\bcontract\b",r"\bprocurement\b",r"\bbid\b",r"\brfp\b",r"\brfq\b",
+        r"\bcontract\b",r"\bagreement\b",r"\bprocurement\b",r"\bbid\b",r"\brfp\b",r"\brfq\b",
         r"\baward(?:ed|ing)?\b",r"\bvendor\b",r"\bpurchase order\b",
     ]),
     ("budget_finance",[

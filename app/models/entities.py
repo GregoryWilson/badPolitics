@@ -49,7 +49,9 @@ class BillAction(Base):
     source_url:Mapped[str|None]=mapped_column(Text,nullable=True)
     raw_json:Mapped[dict]=mapped_column(JSON,default=dict)
     bill=relationship("Bill",back_populates="actions")
-    __table_args__=(UniqueConstraint("bill_id","action_date","text"),Index("ix_bill_actions_bill_date","bill_id","action_date"),)
+    __table_args__=(UniqueConstraint("bill_id","action_date","text"),
+                    Index("ix_bill_actions_bill_date","bill_id","action_date"),
+                    Index("ix_bill_actions_date_bill","action_date","bill_id"))
 
 class BillSponsor(Base):
     __tablename__="bill_sponsors"
