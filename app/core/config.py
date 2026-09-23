@@ -17,6 +17,6 @@ class Settings(BaseSettings):
     auto_discovery_minutes: int = 10
     auto_discovery_batch_size: int = 50
     auto_discovery_us_congress: int = 119
-    auto_discovery_tx_sessions: str = "89R"
+    auto_discovery_tx_sessions: str = "89R,89S1,89S2"
 
 settings = Settings()

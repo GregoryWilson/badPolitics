@@ -114,7 +114,7 @@ def _upsert_document(db,bill,data,document):
 def ingest_normalized_bill(db,data:NormalizedBill):
     bill=db.scalar(select(Bill).where(
         Bill.jurisdiction==data.jurisdiction,
-        Bill.congress==data.session_number,
+        Bill.session_code==data.session,
         Bill.bill_type==data.bill_type.lower(),
         Bill.bill_number==str(data.bill_number),
     ))
@@ -123,6 +123,7 @@ def ingest_normalized_bill(db,data:NormalizedBill):
         bill=Bill(
             jurisdiction=data.jurisdiction,
             congress=data.session_number,
+            session_code=data.session,
             bill_type=data.bill_type.lower(),
             bill_number=str(data.bill_number),
         )

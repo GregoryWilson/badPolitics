@@ -10,16 +10,20 @@ from app.services.research import run_bill_research
 from app.services.reporting import build_report
 from app.services.investigation_queue import sync_bill_queue
 
-def _bill_key(congress,bill_type,bill_number,jurisdiction="US"):
-    return f"{jurisdiction.upper()}:{congress}:{bill_type.lower()}:{bill_number}"
+def _bill_key(congress,bill_type,bill_number,jurisdiction="US",session=None):
+    return f"{jurisdiction.upper()}:{session or congress}:{bill_type.lower()}:{bill_number}"
 
-def _find_bill(db,congress,bill_type,bill_number,jurisdiction="US"):
-    return db.scalar(select(Bill).where(
+def _find_bill(db,congress,bill_type,bill_number,jurisdiction="US",session=None):
+    q=select(Bill).where(
         Bill.jurisdiction==jurisdiction.upper(),
-        Bill.congress==congress,
         Bill.bill_type==bill_type.lower(),
         Bill.bill_number==str(bill_number),
-    ))
+    )
+    if session:
+        q=q.where(Bill.session_code==str(session))
+    else:
+        q=q.where(Bill.congress==congress)
+    return db.scalar(q.order_by(Bill.id.desc()))
 
 def _snapshot_bill(db,bill):
     if not bill:
@@ -113,16 +117,16 @@ def _refresh_outputs(db,watch,bill,events):
     return result
 
 def scan_bill_watch(db,watch,scan):
-    bill=_find_bill(db,watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction)
-    before=_snapshot_bill(db,bill)
     session=(watch.metadata_json or {}).get("session") or str(watch.congress)
+    bill=_find_bill(db,watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction,session)
+    before=_snapshot_bill(db,bill)
     ingest_result=ingest_jurisdiction(db,watch.jurisdiction,session,watch.bill_type,watch.bill_number)
-    bill=_find_bill(db,watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction)
+    bill=_find_bill(db,watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction,session)
     after=_snapshot_bill(db,bill)
     events=[]
     if not before["exists"] and bill:
         row=_emit(
-            db,watch,scan,bill,"bill_discovered",_bill_key(watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction),
+            db,watch,scan,bill,"bill_discovered",_bill_key(watch.congress,watch.bill_type,watch.bill_number,watch.jurisdiction,session),
             f"Bill added to local store: {bill.bill_type.upper()} {bill.bill_number}",
             {"title":bill.title},
         )
@@ -160,7 +164,7 @@ def scan_session_watch(db,watch,scan):
         if not bill:
             continue
         if ingest_result.get("created_bill"):
-            key=_bill_key(bill.congress,bill.bill_type,bill.bill_number,bill.jurisdiction)
+            key=_bill_key(bill.congress,bill.bill_type,bill.bill_number,bill.jurisdiction,bill.session_code)
             row=_emit(
                 db,watch,scan,bill,"bill_discovered",key,
                 f"Newly monitored bill: {bill.bill_type.upper()} {bill.bill_number}",

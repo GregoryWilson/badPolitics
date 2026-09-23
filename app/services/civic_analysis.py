@@ -1,6 +1,7 @@
 import difflib
 import hashlib
 import re
+from datetime import datetime
 from sqlalchemy import select
 
 from app.models.entities import (
@@ -61,6 +62,7 @@ SIGNALS=[
     ]),
 ]
 COMPILED_SIGNALS=[(category,[re.compile(p,re.I) for p in patterns]) for category,patterns in SIGNALS]
+ANALYZER_VERSION="2"
 
 def _hash(*parts):
     return hashlib.sha256("\n".join(str(p or "") for p in parts).encode("utf-8","ignore")).hexdigest()
@@ -227,6 +229,11 @@ def analyze_civic_document(db,document_id):
         created+=int(was_created)
 
     entity_links_created=_analyze_entities(db,doc,revision,item_rows,text)
+    revision.metadata_json={
+        **(revision.metadata_json or {}),
+        "civic_analysis_version":ANALYZER_VERSION,
+        "civic_analyzed_at":datetime.utcnow().isoformat(),
+    }
     db.commit()
     return civic_analysis_result(db,document_id,revision.id) | {
         "created_findings":created,
@@ -252,13 +259,30 @@ def civic_analysis_result(db,document_id,revision_id=None):
         .where(CivicEntityLink.civic_document_id==doc.id,CivicEntityLink.revision_id==revision.id)
         .order_by(EvidenceEntity.canonical_name)
     ).all()
+    raw_attributes=(doc.metadata_json or {}).get("attributes") or {}
+    structured_facts=[]
+    technical={"objectid","globalid","created_user","created_date","last_edited_user","last_edited_date","shape","shape_length","shape_area"}
+    for key,value in raw_attributes.items():
+        if key.casefold() in technical or value in (None,"","Null","null"):
+            continue
+        label=re.sub(r"(?<!^)(?=[A-Z])"," ",str(key)).replace("_"," ").strip()
+        structured_facts.append({"field":key,"label":label,"value":value})
+
     return {
         "document":{
             "id":doc.id,"source_key":doc.source_key,"jurisdiction":doc.jurisdiction,
             "governing_body":doc.governing_body,"document_type":doc.document_type,
             "title":doc.title,"meeting_date":doc.meeting_date,"source_url":doc.source_url,
         },
-        "revision":{"id":revision.id,"sha256":revision.sha256,"observed_at":revision.observed_at.isoformat()},
+        "revision":{
+            "id":revision.id,
+            "sha256":revision.sha256,
+            "observed_at":revision.observed_at.isoformat(),
+            "analysis_version":(revision.metadata_json or {}).get("civic_analysis_version"),
+            "analyzed_at":(revision.metadata_json or {}).get("civic_analyzed_at"),
+        },
+        "analysis_ready":(revision.metadata_json or {}).get("civic_analysis_version")==ANALYZER_VERSION,
+        "structured_facts":structured_facts,
         "agenda_items":[{
             "id":i.id,"ordinal":i.ordinal,"item_number":i.item_number,
             "heading":i.heading,"text":i.text,
@@ -280,8 +304,20 @@ def analyze_changed_civic_documents(db,document_ids):
     results=[]
     for document_id in sorted(set(document_ids or [])):
         try:
-            results.append({"document_id":document_id,"status":"completed","analysis":analyze_civic_document(db,document_id)})
+            results.append({"document_id":document_id,"status":"completed","analysis":ensure_civic_analysis(db,document_id)})
         except Exception as exc:
             db.rollback()
             results.append({"document_id":document_id,"status":"failed","error":str(exc)})
     return results
+
+
+def ensure_civic_analysis(db,document_id,revision_id=None):
+    doc=db.get(CivicDocument,document_id)
+    if not doc:
+        raise ValueError("Civic document not found")
+    revision=db.get(CivicDocumentRevision,revision_id) if revision_id else _latest_revision(db,document_id)
+    if not revision:
+        raise ValueError("Civic document has no revision")
+    if (revision.metadata_json or {}).get("civic_analysis_version")!=ANALYZER_VERSION:
+        return analyze_civic_document(db,document_id)
+    return civic_analysis_result(db,document_id,revision.id)

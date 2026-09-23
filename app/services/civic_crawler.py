@@ -2,12 +2,13 @@ import hashlib
 import io
 import json
 import re
-from datetime import datetime
+from datetime import datetime,date,timedelta
 from urllib.parse import urljoin,urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
+from libmuni.civicclerk import CivicClerkClient
 from sqlalchemy import select
 
 from app.models.entities import CivicDocument,CivicDocumentRevision
@@ -81,6 +82,189 @@ def _fetch_text(client,url):
         text="\n".join((page.extract_text() or "") for page in reader.pages[:250])
         return text[:1_500_000],str(response.url),"pdf"
     return _clean_text(response.text)[:1_500_000],str(response.url),"html"
+
+
+def _candidate_title(soup,fallback):
+    h1=soup.find("h1")
+    if h1:
+        value=h1.get_text(" ",strip=True)
+        if value:
+            return value
+    if soup.title:
+        value=soup.title.get_text(" ",strip=True)
+        if value:
+            return value
+    return fallback
+
+def _scan_seeded_pages(db,source,seeds,limit=50,follow_selector=None):
+    client=httpx.Client(
+        headers={
+            "User-Agent":"LegisWatch/2.0 civic records monitor (+source-preserving research)",
+            "Accept":"text/html,application/xhtml+xml,application/pdf;q=0.9,*/*;q=0.8",
+        },
+        timeout=45,follow_redirects=True,
+    )
+    queue=list(seeds)
+    seen=set()
+    documents=[]
+    changed_ids=[]
+    errors=[]
+    enumerated=0
+    while queue and len(documents)<limit:
+        url,label,depth=queue.pop(0)
+        if url in seen:
+            continue
+        seen.add(url)
+        try:
+            text,final_url,fmt=_fetch_text(client,url)
+            title=label or final_url
+            soup=None
+            if fmt=="html":
+                response=client.get(final_url,timeout=45,follow_redirects=True)
+                response.raise_for_status()
+                soup=BeautifulSoup(response.text,"lxml")
+                title=_candidate_title(soup,title)
+            row,changed=_upsert(
+                db,source,title,final_url,text,
+                metadata={
+                    "format":fmt,
+                    "crawl_depth":depth,
+                    "root_url":source["root_url"],
+                    "source_kind":source["kind"],
+                },
+            )
+            documents.append(row.id)
+            if changed:
+                changed_ids.append(row.id)
+            if soup is not None and follow_selector:
+                candidates=follow_selector(soup,final_url,depth)
+                enumerated+=len(candidates)
+                for item in candidates:
+                    if item[0] not in seen and len(queue)+len(documents)<limit*4:
+                        queue.append(item)
+        except Exception as exc:
+            errors.append({"url":url,"error":str(exc)})
+    db.commit()
+    client.close()
+    return {
+        "source_key":source["source_key"],
+        "root_reached":bool(documents),
+        "records_enumerated":enumerated,
+        "document_count":len(documents),
+        "changed_document_ids":changed_ids,
+        "error_count":len(errors),
+        "errors":errors[:20],
+    }
+
+def scan_boardbook_source(db,source,limit=50):
+    org=str(source["organization_id"])
+    def follow(soup,base,depth):
+        if depth>=2:
+            return []
+        rows=[]
+        for a in soup.find_all("a",href=True):
+            href=urljoin(base,a["href"])
+            path=urlparse(href).path.casefold()
+            text=a.get_text(" ",strip=True)
+            if (
+                f"/public/agenda/{org}" in path
+                or f"/public/minutes/{org}" in path
+                or f"/public/notice/{org}" in path
+            ):
+                rows.append((href,text or "BoardBook record",depth+1))
+            elif depth>0 and (
+                "attachment" in path
+                or "/public/itemdownload" in path
+                or "/public/download" in path
+            ):
+                rows.append((href,text or "BoardBook attachment",depth+1))
+        # Preserve source ordering but deduplicate URLs.
+        out=[]; seen=set()
+        for row in rows:
+            if row[0] not in seen:
+                seen.add(row[0]); out.append(row)
+        return out[:max(limit*3,100)]
+    return _scan_seeded_pages(
+        db,source,[(source["root_url"],source["governing_body"],0)],
+        limit=max(limit,75),follow_selector=follow,
+    )
+
+def scan_civicengage_archive(db,source,limit=50):
+    def follow(soup,base,depth):
+        if depth>=2:
+            return []
+        rows=[]
+        for a in soup.find_all("a",href=True):
+            href=urljoin(base,a["href"])
+            label=a.get_text(" ",strip=True)
+            path=urlparse(href).path.casefold()
+            query=urlparse(href).query.casefold()
+            if (
+                "/archivecenter/viewfile/item/" in path
+                or "/documentcenter/view/" in path
+                or path.endswith(".pdf")
+                or ("archive.aspx" in path and ("amid=" in query or "aid=" in query))
+            ):
+                rows.append((href,label or "Sachse archive record",depth+1))
+        out=[]; seen=set()
+        for row in rows:
+            if row[0] not in seen:
+                seen.add(row[0]); out.append(row)
+        return out[:max(limit*3,100)]
+    return _scan_seeded_pages(
+        db,source,[(source["root_url"],source["governing_body"],0)],
+        limit=max(limit,75),follow_selector=follow,
+    )
+
+def scan_dallas_notices(db,source,limit=50):
+    def follow(soup,base,depth):
+        if depth>=2:
+            return []
+        rows=[]
+        for a in soup.find_all("a",href=True):
+            href=urljoin(base,a["href"])
+            label=a.get_text(" ",strip=True)
+            nearby=(a.parent.get_text(" ",strip=True) if a.parent else label)
+            value=(label+" "+nearby+" "+href).casefold()
+            if "commissioners court" in value and (
+                urlparse(href).path.casefold().endswith(".pdf")
+                or "assets/uploads/docs" in href.casefold()
+                or "agenda" in value
+            ):
+                rows.append((href,label or nearby or "Dallas County Commissioners Court record",depth+1))
+        out=[]; seen=set()
+        for row in rows:
+            if row[0] not in seen:
+                seen.add(row[0]); out.append(row)
+        return out[:max(limit*3,100)]
+    return _scan_seeded_pages(
+        db,source,[(source["root_url"],source["governing_body"],0)],
+        limit=max(limit,75),follow_selector=follow,
+    )
+
+def _arcgis_text(attrs):
+    preferred=[
+        "PlanZoningCase","ProjectName","NAME","Name","ProjectType","DevelopmentType",
+        "Address","Location","Description","ProjectDescription",
+        "ExistingZoning","CurrentZoning","RequestedZoning","ProposedZoning",
+        "Status","ApprovalStatus","PZDate","PZStatus","PZResult",
+        "CouncilDate","CityCouncilDate","CouncilStatus","CouncilResult",
+        "Ordinance","OrdinanceNumber","CaseNumber","ZoningCase",
+    ]
+    technical={"objectid","globalid","created_user","created_date","last_edited_user","last_edited_date","shape","shape_length","shape_area"}
+    lines=[]
+    used=set()
+    def label(key):
+        return re.sub(r"(?<!^)(?=[A-Z])"," ",str(key)).replace("_"," ").strip()
+    for key in preferred:
+        if key in attrs and attrs.get(key) not in (None,"","Null","null"):
+            lines.append(f"{label(key)}: {attrs[key]}")
+            used.add(key)
+    for key,value in attrs.items():
+        if key in used or key.casefold() in technical or value in (None,"","Null","null"):
+            continue
+        lines.append(f"{label(key)}: {value}")
+    return "\n".join(lines)
 
 def _upsert(db,source,title,url,text,metadata=None,external_id=None):
     now=datetime.utcnow()
@@ -183,6 +367,117 @@ def scan_html_source(db,source,limit=50):
     client.close()
     return {
         "source_key":source["source_key"],
+        "root_reached":bool(documents),
+        "records_enumerated":max(0,len(seen)-1),
+        "document_count":len(documents),
+        "changed_document_ids":changed_ids,
+        "error_count":len(errors),
+        "errors":errors[:20],
+    }
+
+
+def scan_civicclerk_source(db,source,limit=75):
+    tenant=source["tenant"]
+    documents=[]
+    changed_ids=[]
+    errors=[]
+    enumerated=0
+    from_date=date.today()-timedelta(days=730)
+    to_date=date.today()+timedelta(days=180)
+    try:
+        with CivicClerkClient(tenant) as client:
+            events=list(client.iter_events(from_date=from_date,to_date=to_date))
+            events=sorted(
+                events,
+                key=lambda event:getattr(event,"starts_at",None) or datetime.min,
+                reverse=True,
+            )
+            enumerated=len(events)
+            for event in events:
+                if len(documents)>=limit:
+                    break
+                event_name=getattr(event,"name",None) or "Sachse public meeting"
+                starts=getattr(event,"starts_at",None)
+                meeting_date=starts.date().isoformat() if hasattr(starts,"date") else None
+                agenda_id=getattr(event,"agenda_id",None)
+                if agenda_id and len(documents)<limit:
+                    try:
+                        agenda=client.get_agenda(agenda_id)
+                        lines=[]
+                        for item in agenda.walk_items():
+                            name=getattr(item,"name",None)
+                            if name:
+                                lines.append(str(name).strip())
+                        text="\n".join(x for x in lines if x)[:1_500_000]
+                        if text:
+                            row,changed=_upsert(
+                                db,source,
+                                f"{event_name} - Agenda",
+                                f"https://{tenant}.portal.civicclerk.com/",
+                                text,
+                                metadata={
+                                    "format":"structured_agenda",
+                                    "source_kind":"civicclerk",
+                                    "tenant":tenant,
+                                    "agenda_id":agenda_id,
+                                    "meeting_date":meeting_date,
+                                },
+                                external_id=f"agenda:{agenda_id}",
+                            )
+                            if meeting_date:
+                                row.meeting_date=meeting_date
+                            documents.append(row.id)
+                            if changed:
+                                changed_ids.append(row.id)
+                    except Exception as exc:
+                        errors.append({"event":event_name,"agenda_id":agenda_id,"error":str(exc)})
+                for published in getattr(event,"published_files",[]) or []:
+                    if len(documents)>=limit:
+                        break
+                    file_id=getattr(published,"file_id",None)
+                    if file_id is None:
+                        continue
+                    file_name=(
+                        getattr(published,"file_name",None)
+                        or getattr(published,"name",None)
+                        or getattr(published,"title",None)
+                        or f"Published file {file_id}"
+                    )
+                    try:
+                        text=client.get_file_text(file_id) or ""
+                        file_url=(
+                            f"https://{tenant}.api.civicclerk.com/v1/"
+                            f"Meetings/GetMeetingFileStream(fileId={file_id},plainText=false)"
+                        )
+                        row,changed=_upsert(
+                            db,source,
+                            f"{event_name} - {file_name}",
+                            file_url,
+                            text,
+                            metadata={
+                                "format":"civicclerk_file",
+                                "source_kind":"civicclerk",
+                                "tenant":tenant,
+                                "file_id":file_id,
+                                "meeting_date":meeting_date,
+                                "event_name":event_name,
+                            },
+                            external_id=f"file:{file_id}",
+                        )
+                        if meeting_date:
+                            row.meeting_date=meeting_date
+                        documents.append(row.id)
+                        if changed:
+                            changed_ids.append(row.id)
+                    except Exception as exc:
+                        errors.append({"event":event_name,"file_id":file_id,"error":str(exc)})
+            db.commit()
+    except Exception as exc:
+        errors.append({"root_url":source["root_url"],"error":str(exc)})
+    return {
+        "source_key":source["source_key"],
+        "root_reached":enumerated>0,
+        "records_enumerated":enumerated,
         "document_count":len(documents),
         "changed_document_ids":changed_ids,
         "error_count":len(errors),
@@ -210,8 +505,12 @@ def scan_arcgis_source(db,source,limit=500):
     for feature in payload.get("features",[]):
         attrs=feature.get("attributes") or {}
         external_id=str(attrs.get("GlobalID") or attrs.get("OBJECTID") or hashlib.sha256(json.dumps(attrs,sort_keys=True).encode()).hexdigest())
-        title=attrs.get("NAME") or attrs.get("PlanZoningCase") or attrs.get("ProjectType") or f"Wylie development {external_id}"
-        text=json.dumps(attrs,sort_keys=True,ensure_ascii=False,indent=2)
+        title=(
+            attrs.get("ProjectName") or attrs.get("NAME") or attrs.get("Name")
+            or attrs.get("PlanZoningCase") or attrs.get("CaseNumber")
+            or attrs.get("ProjectType") or f"Wylie development {external_id}"
+        )
+        text=_arcgis_text(attrs)
         row,changed=_upsert(
             db,source,str(title),source["root_url"],text,
             metadata={"attributes":attrs,"record_type":"arcgis_feature"},
@@ -223,6 +522,8 @@ def scan_arcgis_source(db,source,limit=500):
     db.commit()
     return {
         "source_key":source["source_key"],
+        "root_reached":True,
+        "records_enumerated":len(payload.get("features",[])),
         "document_count":len(rows),
         "changed_document_ids":changed_ids,
         "error_count":0,
@@ -235,6 +536,14 @@ def scan_civic_source(db,source_key,limit=50):
         raise ValueError(f"Unknown civic source: {source_key}")
     if source["kind"]=="arcgis":
         return scan_arcgis_source(db,source,limit=max(limit,500))
+    if source["kind"]=="civicclerk":
+        return scan_civicclerk_source(db,source,limit=max(limit,75))
+    if source["kind"]=="boardbook":
+        return scan_boardbook_source(db,source,limit=limit)
+    if source["kind"]=="civicengage_archive":
+        return scan_civicengage_archive(db,source,limit=limit)
+    if source["kind"]=="dallas_notices":
+        return scan_dallas_notices(db,source,limit=limit)
     return scan_html_source(db,source,limit=limit)
 
 def scan_all_civic_sources(db,limit_per_source=50):
