@@ -340,6 +340,10 @@ Revision-change findings record differences between captured official-source rev
 - activity is grouped into deterministic logical categories such as development/land use, contracts/procurement, budget/finance, taxes/bonds/debt, school facilities/boundaries, policies/rules, hearings, votes/actions, property/land, and elections/governance
 - legislative activity is grouped into deterministic subject categories and uses dated legislative actions for the current calendar week
 - every summary item retains a drill-down record ID and official source URL
+- weekly civic items omit routine meeting procedure and crawler index pages, and merge matching agenda subjects across overlapping records before applying the item limit
+- undated ArcGIS projects appear only when their captured content changed during the week; repeated crawls alone do not count as activity
+- administrative legislative actions do not displace substantive actions in the weekly synopsis
+- lettered agenda section headings organize substantive items without becoming summary cards; meeting addresses, contact details, and routine procedure are omitted
 - the weekly layer is intentionally deterministic/source-backed so future research and conversational LLM controls can sit on top without deciding the underlying facts
 
 API:

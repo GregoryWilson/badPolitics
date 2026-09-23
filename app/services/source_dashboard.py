@@ -1,9 +1,11 @@
 import re
+from difflib import SequenceMatcher
 from collections import defaultdict
 from datetime import datetime,timedelta,date
 from sqlalchemy import select
 
 from app.models.entities import Bill,BillAction,BillVersion,CivicDocument,CivicDocumentRevision,CivicFinding,CivicAgendaItem
+from app.services.civic_analysis import ACTION_RE,ITEM_RE,agenda_section_label
 from app.services.civic_sources import CIVIC_SOURCES
 
 SOURCE_GROUPS=[
@@ -52,6 +54,111 @@ LEGISLATIVE_TOPIC_PATTERNS=[
     ("housing_property",[r"\bhousing\b",r"\bproperty\b",r"\breal estate\b",r"\bland\b",r"\brent\b",r"\bmortgage\b"]),
 ]
 COMPILED_TOPICS=[(key,[re.compile(p,re.I) for p in patterns]) for key,patterns in LEGISLATIVE_TOPIC_PATTERNS]
+
+# Meeting procedure is useful in the source record, but it is not a weekly issue.
+ROUTINE_AGENDA=re.compile(
+    r"^(?:call to order|roll call|establish(?:ment of)? (?:a )?quorum|"
+    r"invocation|pledge(?: of allegiance)?|opening (?:prayer|remarks)|"
+    r"approval of (?:the )?(?:agenda|minutes)|approve (?:the )?(?:agenda|minutes)|"
+    r"consent agenda|public (?:comment|forum|participation)|citizen(?:s|) (?:comment|forum)|"
+    r"announcements?|recognitions?|presentations?|staff reports?|"
+    r"board reports?|committee reports?|future agenda items?|"
+    r"(?:old|new|unfinished) business|(?:discussion|action|information) items?|"
+    r"executive (?:session|closed session)|reconvene|adjourn(?:ment)?)\b",
+    re.I,
+)
+ROUTINE_BILL_ACTION=re.compile(
+    r"\b(?:cosponsor(?:s)? added|text (?:received|available)|"
+    r"read (?:the )?(?:first|second|third) time|held at the desk|"
+    r"received in the (?:house|senate)|message on (?:house|senate) action)\b",
+    re.I,
+)
+SUBSTANTIVE_HINT=re.compile(
+    r"\b(?:ordinance|contract|budget|tax|zoning|bond|development|grant|"
+    r"policy|school|construction|property|project|hearing|election)\b",re.I,
+)
+SUBSTANTIVE_CATEGORIES=set(CATEGORY_LABELS)-{"other_civic","vote_action","public_hearing"}
+CONTACT_HEADING=re.compile(
+    r"^(?:contact us|hours|phone|fax|helpful links|meeting location|"
+    r"(?:\d{3,5}\s+)?sachse\s+(?:road|rd)(?:\s+building\s+b)?|"
+    r"sachse\s+(?:tx|texas)\s+75048)$",re.I,
+)
+
+def _normal(text):
+    value=re.sub(r"^\s*(?:item\s+)?(?:\d+(?:\.\d+)*[a-z]?|[a-z])\s*[.): -]+", "",text or "",flags=re.I)
+    return " ".join(re.findall(r"[\w]+",value.casefold()))
+
+def _routine_agenda(heading):
+    # Match the heading, not the entire item: a specific contract in the body
+    # of a consent item still merits display when it was extracted separately.
+    subject=_normal(heading)
+    return bool(ROUTINE_AGENDA.match(subject) and not SUBSTANTIVE_HINT.search(subject))
+
+def _contact_heading(heading,body):
+    subject=_normal(heading)
+    return bool(CONTACT_HEADING.fullmatch(subject) or
+                ("3815 sachse" in _normal(body) and
+                 subject in {"sachse road building b","sachse rd building b","3815"}))
+
+def _sections_in_text(text):
+    # Recover section names for agenda items analyzed before this feature was
+    # added. The headings are matched to the original revision, in source order.
+    sections=defaultdict(list)
+    current=None
+    for line in (text or "").splitlines():
+        line=line.strip()
+        match=ITEM_RE.match(line)
+        if match:
+            number,heading=match.groups()
+            current=agenda_section_label(number,heading) or current
+            if not agenda_section_label(number,heading):
+                sections[_normal(heading)].append(current)
+        elif agenda_section_label("A",line):
+            current=line
+        elif ACTION_RE.match(line):
+            sections[_normal(line)].append(current)
+    return sections
+
+def _issue_key(item):
+    subject=_normal(item["title"])
+    if len(subject)<25 or subject in {"agenda","minutes","meeting packet","discussion and possible action"}:
+        subject=_normal(item["synopsis"])
+    for _ in range(2):
+        subject=re.sub(r"^(?:(?:consider|discuss)(?: and (?:take )?action on)?|"
+                       r"approval of|approve|adoption of|adopt|authorization of|authorize)\s+(?:the\s+)?",
+                       "",subject)
+    return subject
+
+def _dedupe_civic(items,limit):
+    # Keep distinct meetings and distinct issues within a meeting. Documents
+    # from multiple feeds may still describe the same item on that date.
+    chosen=[]
+    keys=defaultdict(list)
+    for item in items:
+        subject=_issue_key(item)
+        if not subject:
+            continue
+        bucket=(item["date"],item["institution"])
+        duplicate=None
+        for existing in keys[bucket]:
+            other=_issue_key(existing)
+            same_body=(len(_normal(item["synopsis"]))>=60 and
+                       _normal(item["synopsis"])==_normal(existing["synopsis"]))
+            if (subject==other or same_body or
+                (min(len(subject),len(other))>=40 and
+                 SequenceMatcher(None,subject,other).ratio()>=0.94)):
+                duplicate=existing
+                break
+        if duplicate is None:
+            keys[bucket].append(item)
+            chosen.append(item)
+        elif ((item["status"]=="official action recorded",item["category"] in SUBSTANTIVE_CATEGORIES,
+               len(item["synopsis"])) >
+              (duplicate["status"]=="official action recorded",duplicate["category"] in SUBSTANTIVE_CATEGORIES,
+               len(duplicate["synopsis"]))):
+            chosen[chosen.index(duplicate)]=item
+            keys[bucket][keys[bucket].index(duplicate)]=item
+    return chosen[:limit]
 
 def _week_bounds(today=None):
     today=today or datetime.utcnow().date()
@@ -109,28 +216,35 @@ def _civic_week(db,group,start,end,limit):
         select(CivicDocument)
         .where(CivicDocument.source_key.in_(keys))
         .order_by(CivicDocument.meeting_date.desc(),CivicDocument.last_seen_at.desc())
-        .limit(max(limit*5,200))
+        .limit(max(limit*10,500))
     ).all()
     items=[]
     for doc in rows:
-        meeting=_parse_date(doc.meeting_date)
-        seen=doc.last_seen_at.date() if doc.last_seen_at else None
-        if meeting:
-            if not (start<=meeting<=end):
-                continue
-            event_date=meeting
-            date_basis="meeting_date"
-        elif seen and start<=seen<=end:
-            event_date=seen
-            date_basis="captured_this_week"
-        else:
+        # Crawler seed/index pages contain navigation and often a date from an
+        # unrelated link. They are not themselves a dated civic decision.
+        if (doc.metadata_json or {}).get("crawl_depth")==0:
             continue
-
         revision=db.scalar(
             select(CivicDocumentRevision)
             .where(CivicDocumentRevision.civic_document_id==doc.id)
             .order_by(CivicDocumentRevision.observed_at.desc(),CivicDocumentRevision.id.desc())
         )
+        meeting=_parse_date(doc.meeting_date)
+        is_feature=(doc.metadata_json or {}).get("record_type")=="arcgis_feature"
+        changed=(revision.observed_at.date() if revision and revision.observed_at else
+                 doc.first_seen_at.date() if doc.first_seen_at else None)
+        if is_feature and changed and start<=changed<=end:
+            event_date=changed
+            date_basis="updated_this_week"
+        elif is_feature:
+            continue
+        elif meeting:
+            if not (start<=meeting<=end):
+                continue
+            event_date=meeting
+            date_basis="meeting_date"
+        else:
+            continue
         revision_id=revision.id if revision else None
         findings=db.scalars(
             select(CivicFinding)
@@ -151,12 +265,32 @@ def _civic_week(db,group,start,end,limit):
         ).all()
 
         if agenda:
+            section=None
+            legacy_sections=_sections_in_text(revision.text if revision else doc.text)
             for agenda_item in agenda:
+                item_title=agenda_item.heading or _compact(agenda_item.text,180) or doc.title
+                header=agenda_section_label(agenda_item.item_number,item_title)
+                if header:
+                    section=header
+                    continue
+                matched_sections=legacy_sections.get(_normal(item_title),[])
+                if matched_sections:
+                    section=matched_sections.pop(0) or section
+                section=(agenda_item.metadata_json or {}).get("agenda_section") or section
+                if (_contact_heading(item_title,agenda_item.text) or
+                    _routine_agenda(item_title)):
+                    continue
                 linked=[f for f in findings if f.agenda_item_id==agenda_item.id]
                 category=_civic_category(doc,linked)
+                # A stray numbered line from a scraped page is not an agenda issue.
+                if (category=="other_civic" and
+                    (len(_normal(agenda_item.text))<35 or
+                     not (ACTION_RE.match(item_title) or SUBSTANTIVE_HINT.search(item_title)))):
+                    continue
                 action=any(f.category=="vote_action" for f in linked)
                 hearing=any(f.category=="public_hearing" for f in linked)
-                item_title=agenda_item.heading or _compact(agenda_item.text,180) or doc.title
+                status=("official action recorded" if doc.document_type=="minutes" else "proposed action") if action else (
+                    "public hearing" if hearing else "agenda item")
                 items.append({
                     "kind":"civic",
                     "record_id":doc.id,
@@ -167,19 +301,24 @@ def _civic_week(db,group,start,end,limit):
                     "category_label":CATEGORY_LABELS[category],
                     "title":item_title,
                     "parent_title":doc.title,
+                    "agenda_section":section,
                     "date":event_date.isoformat(),
                     "date_basis":date_basis,
-                    "status":"official action recorded" if action else ("public hearing" if hearing else "agenda item"),
+                    "status":status,
                     "synopsis":_compact(agenda_item.text,500),
                     "source_url":doc.source_url,
                     "governing_body":doc.governing_body,
                     "evidence_count":len(linked),
                     "agenda_item_count":1,
                 })
-                if len(items)>=limit:
-                    return items
         else:
             category=_civic_category(doc,findings)
+            # An unparsed packet/agenda is a container, not a second issue.
+            if (category not in SUBSTANTIVE_CATEGORIES or
+                _routine_agenda(doc.title) or _contact_heading(doc.title,doc.text or "") or
+                (doc.document_type in {"agenda","minutes","meeting_packet"} and
+                 len(_normal(doc.title))<45)):
+                continue
             matched=[f for f in findings if f.category==category]
             action_findings=[f for f in findings if f.category=="vote_action"]
             hearing=any(f.category=="public_hearing" for f in findings)
@@ -196,16 +335,15 @@ def _civic_week(db,group,start,end,limit):
                 "parent_title":None,
                 "date":event_date.isoformat(),
                 "date_basis":date_basis,
-                "status":"official action recorded" if action_findings else ("public hearing" if hearing else doc.document_type.replace("_"," ")),
+                "status":(("official action recorded" if doc.document_type=="minutes" else "proposed action")
+                          if action_findings else ("public hearing" if hearing else doc.document_type.replace("_"," "))),
                 "synopsis":synopsis or "Official source record captured for this week.",
                 "source_url":doc.source_url,
                 "governing_body":doc.governing_body,
                 "evidence_count":len(findings),
                 "agenda_item_count":0,
             })
-            if len(items)>=limit:
-                return items
-    return items
+    return _dedupe_civic(items,limit)
 
 def _bill_topic(bill):
     text=" ".join(filter(None,[bill.title,bill.latest_action]))
@@ -244,7 +382,8 @@ def _legislative_week(db,group,start,end,limit):
             .where(BillAction.bill_id==bill.id)
             .order_by(BillAction.action_date.desc(),BillAction.id.desc())
         ).all()
-        weekly=[a for a in actions if (_parse_date(a.action_date) and start<=_parse_date(a.action_date)<=end)]
+        weekly=[a for a in actions if (_parse_date(a.action_date) and start<=_parse_date(a.action_date)<=end)
+                and not ROUTINE_BILL_ACTION.search(a.text or "")]
         if not weekly:
             continue
         action=weekly[0]
