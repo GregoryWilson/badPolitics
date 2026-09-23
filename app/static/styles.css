@@ -81,3 +81,7 @@ textarea{width:100%;min-height:88px;resize:vertical}
 .discovery-source.running{border-color:var(--warn)}
 .discovery-title,.civic-title{font-weight:700}
 .discovery-detail,.civic-detail{color:var(--muted);font-size:11px;margin-top:4px}
+
+.civic-item{cursor:pointer}
+.civic-item:hover,.civic-item.selected{border-color:var(--accent);background:var(--panel2)}
+#civicMeta{color:var(--muted)}
