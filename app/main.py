@@ -454,6 +454,7 @@ async def discovery_run():
     if _discovery_running:
         return {"accepted":False,"status":"already_running"}
     _manual_discovery_task=asyncio.create_task(_run_discovery_once())
+    await asyncio.sleep(0)
     return {"accepted":True,"status":"started"}
 
 @app.get("/discovery/runtime")
