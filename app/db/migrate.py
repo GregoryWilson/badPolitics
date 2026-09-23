@@ -61,6 +61,9 @@ def _legacy_baseline_manifest():
             continue
         columns=set()
         for arg in node.args[1:]:
+            if isinstance(arg,ast.Call) and isinstance(arg.func,ast.Name) and arg.func.id=="_id":
+                columns.add("id")
+                continue
             if not isinstance(arg,ast.Call) or not isinstance(arg.func,ast.Attribute) or arg.func.attr!="Column" or not arg.args:
                 continue
             name=arg.args[0]
