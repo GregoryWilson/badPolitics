@@ -369,3 +369,55 @@ class InvestigationQueueItem(Base):
         Index("ix_queue_status_updated","status","updated_at"),
         Index("ix_queue_bill_status_updated","bill_id","status","updated_at"),
     )
+
+
+class DiscoveryCursor(Base):
+    __tablename__="discovery_cursors"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    source_key:Mapped[str]=mapped_column(String(160),unique=True)
+    jurisdiction:Mapped[str]=mapped_column(String(32))
+    session:Mapped[str|None]=mapped_column(String(64),nullable=True)
+    cursor_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    cycle:Mapped[int]=mapped_column(Integer,default=1)
+    status:Mapped[str]=mapped_column(String(32),default="idle")
+    last_started_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    last_completed_at:Mapped[datetime|None]=mapped_column(DateTime,nullable=True)
+    last_error:Mapped[str|None]=mapped_column(Text,nullable=True)
+    updated_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(Index("ix_discovery_cursor_status","status","updated_at"),)
+
+class CivicDocument(Base):
+    __tablename__="civic_documents"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    source_key:Mapped[str]=mapped_column(String(160))
+    jurisdiction:Mapped[str]=mapped_column(String(64))
+    governing_body:Mapped[str]=mapped_column(String(160))
+    document_type:Mapped[str]=mapped_column(String(64))
+    title:Mapped[str]=mapped_column(Text)
+    meeting_date:Mapped[str|None]=mapped_column(String(32),nullable=True)
+    source_url:Mapped[str]=mapped_column(Text)
+    external_id:Mapped[str]=mapped_column(String(240))
+    text:Mapped[str|None]=mapped_column(Text,nullable=True)
+    sha256:Mapped[str|None]=mapped_column(String(64),nullable=True)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    first_seen_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    last_seen_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(
+        UniqueConstraint("source_key","external_id"),
+        Index("ix_civic_documents_source_date","source_key","meeting_date"),
+        Index("ix_civic_documents_body_date","governing_body","meeting_date"),
+    )
+
+
+class CivicDocumentRevision(Base):
+    __tablename__="civic_document_revisions"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    civic_document_id:Mapped[int]=mapped_column(ForeignKey("civic_documents.id",ondelete="CASCADE"))
+    sha256:Mapped[str]=mapped_column(String(64))
+    text:Mapped[str|None]=mapped_column(Text,nullable=True)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    observed_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(
+        UniqueConstraint("civic_document_id","sha256"),
+        Index("ix_civic_revisions_document_observed","civic_document_id","observed_at"),
+    )

@@ -1,4 +1,5 @@
 import argparse
+import ast
 from pathlib import Path
 
 from alembic import command
@@ -46,19 +47,47 @@ def assert_schema_current(database_url:str|None=None):
 def upgrade(database_url:str|None=None,revision:str="head"):
     command.upgrade(alembic_config(database_url),revision)
 
+def _legacy_baseline_manifest():
+    path=ROOT/"migrations"/"versions"/"0001_baseline.py"
+    tree=ast.parse(path.read_text())
+    manifest={}
+    for node in ast.walk(tree):
+        if not isinstance(node,ast.Call) or not isinstance(node.func,ast.Attribute):
+            continue
+        if node.func.attr!="create_table" or not node.args:
+            continue
+        first=node.args[0]
+        if not isinstance(first,ast.Constant) or not isinstance(first.value,str):
+            continue
+        columns=set()
+        for arg in node.args[1:]:
+            if isinstance(arg,ast.Call) and isinstance(arg.func,ast.Name) and arg.func.id=="_id":
+                columns.add("id")
+                continue
+            if not isinstance(arg,ast.Call) or not isinstance(arg.func,ast.Attribute) or arg.func.attr!="Column" or not arg.args:
+                continue
+            name=arg.args[0]
+            if isinstance(name,ast.Constant) and isinstance(name.value,str):
+                columns.add(name.value)
+        manifest[first.value]=columns
+    if not manifest:
+        raise RuntimeError("Unable to read frozen legacy baseline manifest from migration 0001")
+    return manifest
+
 def _validate_legacy_schema(engine):
     inspector=inspect(engine)
     actual_tables=set(inspector.get_table_names())
     if "alembic_version" in actual_tables:
         raise RuntimeError("Database is already Alembic-managed; use 'alembic upgrade head'.")
-    expected_tables=set(Base.metadata.tables)
+    manifest=_legacy_baseline_manifest()
+    expected_tables=set(manifest)
     present=expected_tables & actual_tables
     if not present:
         raise RuntimeError("No LegisWatch legacy tables were found; use 'alembic upgrade head' for a fresh database.")
     missing_tables=sorted(expected_tables-actual_tables)
     missing_columns={}
     for table_name in sorted(expected_tables & actual_tables):
-        expected={c.name for c in Base.metadata.tables[table_name].columns}
+        expected=manifest[table_name]
         actual={c["name"] for c in inspector.get_columns(table_name)}
         missing=sorted(expected-actual)
         if missing:

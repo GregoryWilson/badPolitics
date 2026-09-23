@@ -1,4 +1,4 @@
-const state={bills:[],selected:null,report:null,watches:[],events:[],queue:[],queueSummary:null};
+const state={bills:[],selected:null,report:null,watches:[],events:[],queue:[],queueSummary:null,discovery:[],civic:[]};
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -25,6 +25,50 @@ const api=async(url,opts={})=>{
   return r.json();
 };
 const status=(msg,cls="")=>{$("statusLine").className="status-line "+cls;$("statusLine").textContent=msg||""};
+
+async function loadDiscoveryData(){
+  try{
+    const result=await Promise.all([
+      api("/discovery/status"),
+      api("/civic-documents?limit=25")
+    ]);
+    state.discovery=result[0];
+    state.civic=result[1];
+    renderDiscovery();
+  }catch(e){
+    if($("discoveryStatus"))$("discoveryStatus").innerHTML='<div class="notice">Unable to load discovery status.</div>';
+  }
+}
+function renderDiscovery(){
+  if(!$("discoveryStatus"))return;
+  $("discoveryStatus").innerHTML=state.discovery.length?state.discovery.map(row=>{
+    const last=(row.cursor||{}).last_result||{};
+    const cls=row.status==="error"?" error":(row.status==="running"?" running":"");
+    const progress=last.source_total?((last.offset||0)+(last.source_count||0))+"/"+last.source_total:
+      (last.reported_total?((last.offset||0)+(last.source_count||0))+"/"+last.reported_total:"cycle "+esc(row.cycle));
+    return '<div class="discovery-source'+cls+'">'+
+      '<div class="discovery-title">'+esc(row.source_key)+'</div>'+
+      '<div class="discovery-detail">'+esc(row.status)+' · '+esc(progress)+(row.last_error?' · '+esc(row.last_error):'')+'</div>'+
+      '</div>';
+  }).join(""):'<div class="notice">Discovery has not run yet.</div>';
+  $("civicList").innerHTML=state.civic.length?state.civic.slice(0,12).map(row=>
+    '<div class="civic-item">'+
+      '<div class="civic-title">'+esc(row.title)+'</div>'+
+      '<div class="civic-detail">'+esc(row.governing_body)+' · '+esc(row.document_type)+(row.meeting_date?' · '+esc(row.meeting_date):'')+'</div>'+
+      (safeUrl(row.source_url)?'<a class="source-link" target="_blank" rel="noreferrer" href="'+esc(safeUrl(row.source_url))+'">Official source</a>':'')+
+      '</div>'
+  ).join(""):'<div class="notice">No civic records captured yet.</div>';
+}
+async function runDiscovery(){
+  $("runDiscovery").disabled=true;
+  status("Running discovery batch…");
+  try{
+    await api("/discovery/run",{method:"POST"});
+    await Promise.all([loadBills(),loadDiscoveryData()]);
+    status("Discovery batch completed.","success");
+  }catch(e){status("Discovery failed: "+e.message,"error")}
+  finally{$("runDiscovery").disabled=false}
+}
 
 async function loadQueueData(){
   try{
@@ -453,11 +497,12 @@ function activateTab(name){
 
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
 $("billSearch").oninput=renderBillList;
-$("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData(),loadQueueData()])};
+$("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData(),loadQueueData(),loadDiscoveryData()])};
+$("runDiscovery").onclick=runDiscovery;
 $("scanWatches").onclick=scanWatches;
 $("watchBill").onclick=watchSelectedBill;
 $("watchSession").onclick=watchSelectedSession;
 $("runResearch").onclick=runResearch;
 $("buildReport").onclick=buildReport;
 $("queueStatusFilter").onchange=loadQueueData;
-Promise.all([loadBills(),loadWatchData(),loadQueueData()]);
+Promise.all([loadBills(),loadWatchData(),loadQueueData(),loadDiscoveryData()]);

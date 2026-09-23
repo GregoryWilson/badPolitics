@@ -29,10 +29,12 @@ from app.schemas.queue import QueueItemUpdate
 from app.services.investigation_queue import sync_bill_queue,list_queue,queue_summary,update_queue_item
 from app.schemas.watch import WatchCreate,WatchUpdate
 from app.services.watch import run_watch,run_active_watches,list_events,get_scan
+from app.services.auto_discovery import run_auto_discovery,discovery_status,list_civic_documents,civic_document_revisions
+from app.services.civic_sources import CIVIC_SOURCES
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
-app=FastAPI(title="LegisWatch",version="1.8.0")
+app=FastAPI(title="LegisWatch",version="1.9.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -41,7 +43,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"1.8.0","watch_poll_minutes":settings.watch_poll_minutes}
+def health(): return {"ok":True,"version":"1.9.0","watch_poll_minutes":settings.watch_poll_minutes,"auto_discovery_enabled":settings.auto_discovery_enabled,"auto_discovery_minutes":settings.auto_discovery_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -433,6 +435,43 @@ def investigation_queue_update(
     except ValueError as e:
         raise HTTPException(400,str(e))
 
+@app.get("/discovery/sources")
+def discovery_sources():
+    return {
+        "legislative":[
+            {"source_key":f"legis:US:{settings.auto_discovery_us_congress}","jurisdiction":"US","session":str(settings.auto_discovery_us_congress)},
+            *[
+                {"source_key":f"legis:TX:{session.strip().upper()}","jurisdiction":"TX","session":session.strip().upper()}
+                for session in settings.auto_discovery_tx_sessions.split(",") if session.strip()
+            ],
+        ],
+        "civic":CIVIC_SOURCES,
+    }
+
+@app.post("/discovery/run")
+def discovery_run(db:Session=Depends(get_db)):
+    return run_auto_discovery(db)
+
+@app.get("/discovery/status")
+def discovery_status_get(db:Session=Depends(get_db)):
+    return discovery_status(db)
+
+@app.get("/civic-documents")
+def civic_documents_list(
+    source_key:str|None=None,
+    governing_body:str|None=None,
+    limit:int=200,
+    db:Session=Depends(get_db),
+):
+    return list_civic_documents(db,source_key=source_key,governing_body=governing_body,limit=limit)
+
+@app.get("/civic-documents/{document_id}/revisions")
+def civic_document_revision_list(document_id:int,db:Session=Depends(get_db)):
+    try:
+        return civic_document_revisions(db,document_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+
 @app.post("/bills/{bill_id}/reports")
 def report_create(bill_id:int,research_run_id:int|None=None,db:Session=Depends(get_db)):
     try:
@@ -449,6 +488,23 @@ def report_get(report_id:int,db:Session=Depends(get_db)):
 
 
 _watch_task=None
+_discovery_task=None
+
+async def _discovery_loop():
+    interval=max(1,int(settings.auto_discovery_minutes))*60
+    while True:
+        try:
+            await asyncio.to_thread(_run_auto_discovery_background)
+        except Exception:
+            pass
+        await asyncio.sleep(interval)
+
+def _run_auto_discovery_background():
+    db=SessionLocal()
+    try:
+        return run_auto_discovery(db)
+    finally:
+        db.close()
 
 async def _watch_loop():
     interval=max(1,int(settings.watch_poll_minutes))*60
@@ -471,10 +527,27 @@ def verify_database_schema():
     assert_schema_current()
 
 @app.on_event("startup")
+async def start_auto_discovery_loop():
+    global _discovery_task
+    if settings.auto_discovery_enabled and _discovery_task is None:
+        _discovery_task=asyncio.create_task(_discovery_loop())
+
+@app.on_event("startup")
 async def start_watch_loop():
     global _watch_task
     if settings.watch_poll_minutes>0 and _watch_task is None:
         _watch_task=asyncio.create_task(_watch_loop())
+
+@app.on_event("shutdown")
+async def stop_auto_discovery_loop():
+    global _discovery_task
+    if _discovery_task:
+        _discovery_task.cancel()
+        try:
+            await _discovery_task
+        except asyncio.CancelledError:
+            pass
+        _discovery_task=None
 
 @app.on_event("shutdown")
 async def stop_watch_loop():
