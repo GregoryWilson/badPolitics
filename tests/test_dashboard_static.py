@@ -120,6 +120,7 @@ def test_dashboard_supports_civic_analysis_workspace():
     html=(ROOT/"app/static/index.html").read_text()
     js=(ROOT/"app/static/app.js").read_text()
     assert 'id="civicView"' in html
+    assert 'id="civicFacts"' in html
     assert 'id="civicFindings"' in html
     assert 'id="civicAgendaItems"' in html
     assert 'id="civicEntities"' in html
