@@ -2,12 +2,12 @@ from datetime import datetime
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.models.entities import DiscoveryCursor, Bill, CivicDocument, CivicDocumentRevision
+from app.models.entities import DiscoveryCursor, CivicDocument, CivicDocumentRevision
 from app.services.congress import CongressClient
 from app.services.ingest import ingest_jurisdiction
 from app.services.monitor import BILL_TYPES
 from app.jurisdictions import get_adapter
-from app.services.civic_crawler import scan_all_civic_sources, scan_civic_source
+from app.services.civic_crawler import scan_civic_source
 from app.services.civic_sources import CIVIC_SOURCES
 
 def _cursor(db,source_key,jurisdiction,session=None):
