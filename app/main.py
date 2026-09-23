@@ -33,10 +33,11 @@ from app.services.watch import run_watch,run_active_watches,list_events,get_scan
 from app.services.auto_discovery import discover_federal_batch,discover_texas_batch,discover_civic_source,discovery_status,list_civic_documents,civic_document_revisions
 from app.services.civic_sources import CIVIC_SOURCES
 from app.services.civic_analysis import analyze_civic_document,civic_analysis_result,ensure_civic_analysis
+from app.services.source_dashboard import dashboard_sources,weekly_source_summary
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
-app=FastAPI(title="LegisWatch",version="2.0.0")
+app=FastAPI(title="LegisWatch",version="2.1.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -45,7 +46,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"2.0.0","watch_poll_minutes":settings.watch_poll_minutes,"auto_discovery_enabled":settings.auto_discovery_enabled,"auto_discovery_minutes":settings.auto_discovery_minutes}
+def health(): return {"ok":True,"version":"2.1.0","watch_poll_minutes":settings.watch_poll_minutes,"auto_discovery_enabled":settings.auto_discovery_enabled,"auto_discovery_minutes":settings.auto_discovery_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -436,6 +437,17 @@ def investigation_queue_update(
         )
     except ValueError as e:
         raise HTTPException(400,str(e))
+
+@app.get("/dashboard/sources")
+def source_dashboard_sources(db:Session=Depends(get_db)):
+    return dashboard_sources(db)
+
+@app.get("/dashboard/weekly/{source_id}")
+def source_dashboard_weekly(source_id:str,limit:int=150,db:Session=Depends(get_db)):
+    try:
+        return weekly_source_summary(db,source_id,limit=max(1,min(limit,500)))
+    except ValueError as e:
+        raise HTTPException(404,str(e))
 
 @app.get("/discovery/sources")
 def discovery_sources():

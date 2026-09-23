@@ -1,4 +1,4 @@
-const state={bills:[],selected:null,selectedCivic:null,report:null,watches:[],events:[],queue:[],queueSummary:null,discovery:[],civic:[]};
+const state={bills:[],selected:null,selectedCivic:null,report:null,watches:[],events:[],queue:[],queueSummary:null,discovery:[],civic:[],weeklySources:[],weekly:null,selectedWeeklySource:"sachse"};
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -25,6 +25,101 @@ const api=async(url,opts={})=>{
   return r.json();
 };
 const status=(msg,cls="")=>{$("statusLine").className="status-line "+cls;$("statusLine").textContent=msg||""};
+
+
+async function loadWeeklyDashboard(sourceId=state.selectedWeeklySource){
+  state.selectedWeeklySource=sourceId||"sachse";
+  try{
+    if(!state.weeklySources.length)state.weeklySources=await api("/dashboard/sources");
+    state.weekly=await api("/dashboard/weekly/"+encodeURIComponent(state.selectedWeeklySource));
+    renderWeeklyDashboard();
+  }catch(e){
+    $("weeklyCategories").innerHTML='<div class="notice">Unable to load weekly source summary: '+esc(e.message)+'</div>';
+  }
+}
+function showWeeklyDashboard(){
+  state.selected=null;
+  state.selectedCivic=null;
+  renderBillList();
+  renderDiscovery();
+  $("weeklyView").hidden=false;
+  $("emptyState").hidden=true;
+  $("civicView").hidden=true;
+  $("billView").hidden=true;
+  loadWeeklyDashboard(state.selectedWeeklySource);
+}
+function renderWeeklyDashboard(){
+  const result=state.weekly||{source:{label:""},window:{},categories:[]};
+  $("weeklyView").hidden=false;
+  $("weeklyTitle").textContent="What's happening this week in "+(result.source?.label||"");
+  $("weeklyWindow").textContent=(result.window?.start||"")+" through "+(result.window?.end||"");
+  $("weeklySources").innerHTML=state.weeklySources.map(source=>
+    '<button class="weekly-source '+(source.id===state.selectedWeeklySource?'active':'')+'" data-weekly-source="'+esc(source.id)+'">'+esc(source.label)+'</button>'
+  ).join("");
+  document.querySelectorAll(".weekly-source[data-weekly-source]").forEach(button=>{
+    button.onclick=()=>loadWeeklyDashboard(button.dataset.weeklySource);
+  });
+  $("weeklyMetrics").innerHTML=[
+    ["Items this week",result.item_count||0],
+    ["Categories",result.category_count||0],
+    ["Institution",result.source?.label||""],
+  ].map(([label,value])=>'<div class="metric"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>').join("");
+  $("weeklyCategories").innerHTML=(result.categories||[]).length?(result.categories||[]).map(category=>
+    '<section class="weekly-category">'+
+      '<div class="weekly-category-header"><h3>'+esc(category.label)+'</h3><span class="badge">'+esc(category.count)+'</span></div>'+
+      category.items.map(item=>
+        '<article class="weekly-item" data-weekly-kind="'+esc(item.kind)+'" data-weekly-id="'+esc(item.record_id)+'">'+
+          '<div class="weekly-item-top"><strong>'+esc(item.title)+'</strong><span class="weekly-date">'+esc(item.date)+'</span></div>'+
+          '<div class="meta"><span class="badge">'+esc(item.status)+'</span>'+
+            (item.governing_body?'<span>'+esc(item.governing_body)+'</span>':'')+
+            (item.session?'<span>Session '+esc(item.session)+'</span>':'')+
+          '</div>'+
+          '<div class="weekly-synopsis">'+esc(item.synopsis||"")+'</div>'+
+          '<div class="weekly-item-actions"><button class="weekly-open">Open record</button>'+
+            (safeUrl(item.source_url)?'<a class="source-link" target="_blank" rel="noreferrer" href="'+esc(safeUrl(item.source_url))+'">Official source</a>':'')+
+          '</div>'+
+        '</article>'
+      ).join("")+
+    '</section>'
+  ).join(""):'<div class="notice">No source-backed activity for this institution has been captured for the current week yet.</div>';
+  document.querySelectorAll(".weekly-item").forEach(card=>{
+    card.querySelector(".weekly-open").onclick=()=>openWeeklyItem(card.dataset.weeklyKind,Number(card.dataset.weeklyId));
+  });
+}
+async function openWeeklyItem(kind,id){
+  if(kind==="bill"){
+    await selectBill(id);
+    return;
+  }
+  const item=(state.weekly?.categories||[]).flatMap(c=>c.items||[]).find(x=>x.kind===kind&&Number(x.record_id)===id);
+  if(!item)return;
+  state.selected=null;
+  state.selectedCivic={id:item.record_id,title:item.title,governing_body:item.governing_body||item.institution,document_type:item.status||"civic record",meeting_date:item.date,source_key:item.source_key,source_url:item.source_url};
+  renderBillList();
+  renderDiscovery();
+  $("weeklyView").hidden=true;
+  $("emptyState").hidden=true;
+  $("billView").hidden=true;
+  $("civicView").hidden=false;
+  $("civicEyebrow").textContent=(item.governing_body||item.institution)+" · "+(item.category_label||"Civic activity");
+  $("civicTitle").textContent=item.title;
+  $("civicMeta").textContent=item.date+" · "+item.source_key;
+  const source=safeUrl(item.source_url);
+  $("civicSourceLink").hidden=!source;
+  if(source)$("civicSourceLink").href=source;
+  status("Loading civic analysis…");
+  try{
+    const analysis=await api("/civic-documents/"+id+"/analysis");
+    renderCivicAnalysis(analysis);
+    status("");
+  }catch(e){
+    $("civicFindings").innerHTML='<div class="notice">Civic analysis is unavailable: '+esc(e.message)+'</div>';
+    $("civicFacts").innerHTML="";
+    $("civicAgendaItems").innerHTML="";
+    $("civicEntities").innerHTML="";
+    status("");
+  }
+}
 
 async function loadDiscoveryData(){
   try{
@@ -366,7 +461,7 @@ function renderBillList(){
 async function selectBill(id){
   const bill=state.bills.find(b=>b.id===id); if(!bill)return;
   state.selected=bill; state.selectedCivic=null; state.report=null; renderBillList(); renderDiscovery(); updateWatchButton();
-  $("emptyState").hidden=true;$("civicView").hidden=true;$("billView").hidden=false;
+  $("weeklyView").hidden=true;$("emptyState").hidden=true;$("civicView").hidden=true;$("billView").hidden=false;
   $("billIdLine").textContent=`${bill.bill_type.toUpperCase()} ${bill.bill_number} · ${bill.jurisdiction} · ${bill.session}`;
   $("billTitle").textContent=bill.title||"Untitled bill";
   $("latestAction").textContent=bill.latest_action||"No latest action recorded.";
@@ -618,6 +713,7 @@ function activateTab(name){
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>activateTab(b.dataset.tab));
 $("billSearch").oninput=renderBillList;
 $("refreshBills").onclick=async()=>{await Promise.all([loadBills(),loadWatchData(),loadQueueData(),loadDiscoveryData()])};
+$("showWeekly").onclick=showWeeklyDashboard;
 $("runDiscovery").onclick=runDiscovery;
 $("scanWatches").onclick=scanWatches;
 $("watchBill").onclick=watchSelectedBill;
@@ -626,4 +722,4 @@ $("runResearch").onclick=runResearch;
 $("buildReport").onclick=buildReport;
 $("queueStatusFilter").onchange=loadQueueData;
 $("reanalyzeCivic").onclick=reanalyzeSelectedCivic;
-Promise.all([loadBills(),loadWatchData(),loadQueueData(),loadDiscoveryData()]);
+Promise.all([loadBills(),loadWatchData(),loadQueueData(),loadDiscoveryData(),loadWeeklyDashboard("sachse")]);

@@ -13,6 +13,7 @@
       <p>Evidence-first legislative monitoring. Review signals are not political ratings.</p>
     </div>
     <div class="actions">
+      <button id="showWeekly">Weekly Brief</button>
       <button id="runDiscovery">Run Discovery</button>
       <button id="scanWatches">Scan Watches</button>
       <button id="refreshBills">Refresh</button>
@@ -50,7 +51,21 @@
     </aside>
 
     <section id="workspace">
-      <div id="emptyState" class="empty-state">
+      <div id="weeklyView">
+        <div class="weekly-header">
+          <div>
+            <div class="eyebrow">Institution activity</div>
+            <h2 id="weeklyTitle">What's happening this week</h2>
+            <p id="weeklyWindow"></p>
+          </div>
+          <div id="weeklySources" class="weekly-source-picker"></div>
+        </div>
+        <div id="weeklyMetrics" class="metric-grid"></div>
+        <div class="notice">This is a source-backed activity synopsis. Categories describe documented subject matter and process; they do not rate political importance, desirability, motive, or wrongdoing.</div>
+        <div id="weeklyCategories"></div>
+      </div>
+
+      <div id="emptyState" class="empty-state" hidden>
         <h2>Select a bill</h2>
         <p>Metrics, findings, timeline, version changes, research and investigation reports will appear here.</p>
       </div>
