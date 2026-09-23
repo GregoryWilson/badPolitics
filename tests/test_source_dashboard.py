@@ -112,3 +112,117 @@ def test_texas_weekly_summary_uses_dated_actions_and_topic_categories(tmp_path):
         assert item["source_url"]=="https://example.test/tx/hb10"
     finally:
         engine.dispose()
+
+def test_civic_week_filters_process_and_merges_overlapping_records_before_limit(tmp_path):
+    engine=build_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            def add_doc(source,title,meeting_date,seen,agenda_items=None,category=None,kind="agenda",metadata=None):
+                doc=CivicDocument(
+                    source_key=source,jurisdiction="TX-local",governing_body="City of Sachse",
+                    document_type=kind,title=title,meeting_date=meeting_date,
+                    source_url=f"https://example.test/{source}/{title.replace(' ','-')}",
+                    external_id=f"{source}:{title}",text=title,sha256=title,
+                    metadata_json=metadata or {},first_seen_at=seen,last_seen_at=seen,
+                )
+                db.add(doc);db.flush()
+                rev=CivicDocumentRevision(civic_document_id=doc.id,sha256=title,
+                                          text=title,metadata_json={},observed_at=seen)
+                db.add(rev);db.flush()
+                for ordinal,(heading,body,signal) in enumerate(agenda_items or [],1):
+                    agenda=CivicAgendaItem(civic_document_id=doc.id,revision_id=rev.id,
+                        ordinal=ordinal,item_number=str(ordinal),heading=heading,text=body,
+                        evidence_hash=f"{title}:{ordinal}",metadata_json={})
+                    db.add(agenda);db.flush()
+                    if signal:
+                        db.add(CivicFinding(civic_document_id=doc.id,revision_id=rev.id,
+                            agenda_item_id=agenda.id,category=signal,statement=signal,
+                            evidence=body,confidence=1.0,evidence_hash=f"{title}:f{ordinal}",
+                            metadata_json={}))
+                if category:
+                    db.add(CivicFinding(civic_document_id=doc.id,revision_id=rev.id,
+                        agenda_item_id=None,category=category,statement=category,
+                        evidence=title,confidence=1.0,evidence_hash=f"{title}:doc",metadata_json={}))
+                return doc
+
+            seen=datetime(2026,9,22,8)
+            shared="Consider approval of the Oak Street sidewalk construction contract for $2 million."
+            add_doc("sachse_current_meetings","Council agenda","2026-09-22",seen,[
+                ("Call to order","Call to order and establish a quorum.",None),
+                ("Approve the minutes","Approve minutes of the previous meeting.","vote_action"),
+                ("Approve Oak Street sidewalk construction contract",shared,"procurement_contract"),
+                ("Adjournment","Adjourn meeting.",None),
+            ])
+            add_doc("sachse_council_agendas","Council packet","2026-09-22",seen,[
+                ("Consider approval of the Oak Street sidewalk construction contract",shared,"vote_action"),
+                ("Adopt the neighborhood parking ordinance",
+                 "Consider adoption of the neighborhood parking ordinance.","policy_rule"),
+            ])
+            add_doc("sachse_council_minutes","Regular Council Meeting - Minutes",
+                    "2026-09-22",seen,category="procurement_contract",kind="minutes")
+            add_doc("sachse_development_reports","Development services home",None,
+                    seen,category="zoning_development",kind="web_record")
+            add_doc("sachse_council_agendas","Council index", "2026-09-22",seen,
+                    [("Approve unrelated contract from a navigation link",
+                      "Consider approval of a contract linked from the index.","procurement_contract")],
+                    metadata={"crawl_depth":0})
+            db.commit()
+            result=weekly_source_summary(db,"sachse",limit=2,today=date(2026,9,23))
+
+        titles=[item["title"] for category in result["categories"] for item in category["items"]]
+        assert result["item_count"]==2
+        assert set(titles)=={"Approve Oak Street sidewalk construction contract",
+                             "Adopt the neighborhood parking ordinance"}
+    finally:
+        engine.dispose()
+
+def test_legislative_week_ignores_admin_action_but_keeps_substantive_action(tmp_path):
+    engine=build_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            bill=Bill(jurisdiction="US",congress=119,session_code="119",bill_type="hr",
+                      bill_number="42",title="School funding",metadata_json={},
+                      updated_at=datetime(2026,9,23,9))
+            db.add(bill);db.flush()
+            for day,text in [(22,"Referred to the Committee on Education."),
+                             (23,"Cosponsors added to the bill.")]:
+                db.add(BillAction(bill_id=bill.id,action_date=f"2026-09-{day}",
+                                  text=text,source_url="https://example.test/bill",
+                                  raw_json={}))
+            db.commit()
+            result=weekly_source_summary(db,"federal",today=date(2026,9,23))
+        assert result["item_count"]==1
+        item=result["categories"][0]["items"][0]
+        assert item["date"]=="2026-09-22"
+        assert item["action_count_this_week"]==1
+    finally:
+        engine.dispose()
+
+def test_arcgis_feature_needs_change_this_week_not_just_a_recrawl(tmp_path):
+    engine=build_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            for label,observed in [("Old project",datetime(2026,9,1)),
+                                   ("Updated project",datetime(2026,9,22))]:
+                doc=CivicDocument(source_key="wylie_development_projects",
+                    jurisdiction="TX-local",governing_body="City of Wylie",
+                    document_type="web_record",title=label,meeting_date=None,
+                    source_url="https://example.test/feature",external_id=label,
+                    text="Zoning project status updated",sha256=label,
+                    metadata_json={"record_type":"arcgis_feature"},
+                    first_seen_at=observed,last_seen_at=datetime(2026,9,23))
+                db.add(doc);db.flush()
+                revision=CivicDocumentRevision(civic_document_id=doc.id,sha256=label,
+                    text=doc.text,metadata_json={},observed_at=observed)
+                db.add(revision)
+                db.flush()
+                db.add(CivicFinding(civic_document_id=doc.id,
+                    revision_id=revision.id,
+                    agenda_item_id=None,category="zoning_development",statement="Project",
+                    evidence=doc.text,confidence=1.0,evidence_hash=label,metadata_json={}))
+            db.commit()
+            result=weekly_source_summary(db,"wylie",today=date(2026,9,23))
+        assert result["item_count"]==1
+        assert result["categories"][0]["items"][0]["title"]=="Updated project"
+    finally:
+        engine.dispose()

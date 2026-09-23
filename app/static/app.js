@@ -68,7 +68,7 @@ function renderWeeklyDashboard(){
     '<section class="weekly-category">'+
       '<div class="weekly-category-header"><h3>'+esc(category.label)+'</h3><span class="badge">'+esc(category.count)+'</span></div>'+
       category.items.map(item=>
-        '<article class="weekly-item" data-weekly-kind="'+esc(item.kind)+'" data-weekly-id="'+esc(item.record_id)+'">'+
+        '<article class="weekly-item" data-weekly-kind="'+esc(item.kind)+'" data-weekly-id="'+esc(item.record_id)+'" data-weekly-agenda-id="'+esc(item.agenda_item_id??'')+'">'+
           '<div class="weekly-item-top"><strong>'+esc(item.title)+'</strong><span class="weekly-date">'+esc(item.date)+'</span></div>'+
           '<div class="meta"><span class="badge">'+esc(item.status)+'</span>'+
             (item.governing_body?'<span>'+esc(item.governing_body)+'</span>':'')+
@@ -83,15 +83,16 @@ function renderWeeklyDashboard(){
     '</section>'
   ).join(""):'<div class="notice">No source-backed activity for this institution has been captured for the current week yet.</div>';
   document.querySelectorAll(".weekly-item").forEach(card=>{
-    card.querySelector(".weekly-open").onclick=()=>openWeeklyItem(card.dataset.weeklyKind,Number(card.dataset.weeklyId));
+    card.querySelector(".weekly-open").onclick=()=>openWeeklyItem(card.dataset.weeklyKind,Number(card.dataset.weeklyId),card.dataset.weeklyAgendaId);
   });
 }
-async function openWeeklyItem(kind,id){
+async function openWeeklyItem(kind,id,agendaId=""){
   if(kind==="bill"){
     await selectBill(id);
     return;
   }
-  const item=(state.weekly?.categories||[]).flatMap(c=>c.items||[]).find(x=>x.kind===kind&&Number(x.record_id)===id);
+  const item=(state.weekly?.categories||[]).flatMap(c=>c.items||[]).find(x=>
+    x.kind===kind&&Number(x.record_id)===id&&String(x.agenda_item_id??"")===agendaId);
   if(!item)return;
   state.selected=null;
   state.selectedCivic={id:item.record_id,title:item.title,governing_body:item.governing_body||item.institution,document_type:item.status||"civic record",meeting_date:item.date,source_key:item.source_key,source_url:item.source_url};
