@@ -303,6 +303,25 @@ GISD is intentionally treated as a high-priority local source. Current roots inc
 
 Automatic discovery records source material and changes; it does not assign political importance, motive, or wrongdoing.
 
+## MVP-19
+- deterministic local civic analysis for discovered municipal, county, and school-board records
+- structured agenda/action-item extraction from official source text
+- review signals for zoning/development, procurement/contracts, budgets/finance, bonds/taxes/debt, school facilities/boundaries, policy/rules, hearings, votes/actions, land/property, and elections/governance
+- explicit monetary-mention extraction with exact source evidence
+- civic document revision diffs preserved as a distinct change signal
+- deterministic named-organization/vendor/developer extraction linked into the shared evidence-entity graph
+- automatic analysis of newly changed civic records
+- idempotent backfill analysis for civic records captured before MVP-19
+- civic analysis APIs and dedicated dashboard Civic Review workspace
+
+### Civic analysis semantics
+
+Civic analysis is evidence-first and deterministic. Findings indicate that explicit source text matched a documented category or that a captured source revision changed. A category match is a review lead, not a conclusion about importance, intent, influence, conflict, impropriety, or wrongdoing.
+
+Named organization links record that an organization name appeared in the source using a deterministic name pattern. They do not establish that the organization benefited from, influenced, or was responsible for an action.
+
+Revision-change findings record differences between captured official-source revisions. They do not imply that the change was unusual, concealed, or improper.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -321,6 +340,8 @@ POST /discovery/run
 GET  /discovery/status
 GET  /civic-documents
 GET  /civic-documents/{document_id}/revisions
+POST /civic-documents/{document_id}/analyze
+GET  /civic-documents/{document_id}/analysis
 GET  /jurisdictions
 POST /jurisdictions/{jurisdiction}/ingest/{session}/{bill_type}/{number}
 POST /jurisdictions/{jurisdiction}/discover/{session}?limit=100&ingest=false
