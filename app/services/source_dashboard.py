@@ -125,6 +125,7 @@ def _civic_week(db,group,start,end,limit):
             date_basis="captured_this_week"
         else:
             continue
+
         findings=db.scalars(
             select(CivicFinding)
             .where(CivicFinding.civic_document_id==doc.id)
@@ -134,38 +135,64 @@ def _civic_week(db,group,start,end,limit):
             select(CivicAgendaItem)
             .where(CivicAgendaItem.civic_document_id==doc.id)
             .order_by(CivicAgendaItem.ordinal)
-            .limit(6)
+            .limit(100)
         ).all()
-        category=_civic_category(doc,findings)
-        matched=[f for f in findings if f.category==category]
-        synopsis=None
+
         if agenda:
-            synopsis="; ".join(_compact(a.heading or a.text,140) for a in agenda[:3])
-        elif matched:
-            synopsis=_compact(matched[0].evidence or matched[0].statement)
+            for agenda_item in agenda:
+                linked=[f for f in findings if f.agenda_item_id==agenda_item.id]
+                category=_civic_category(doc,linked)
+                action=any(f.category=="vote_action" for f in linked)
+                hearing=any(f.category=="public_hearing" for f in linked)
+                item_title=agenda_item.heading or _compact(agenda_item.text,180) or doc.title
+                items.append({
+                    "kind":"civic",
+                    "record_id":doc.id,
+                    "agenda_item_id":agenda_item.id,
+                    "source_key":doc.source_key,
+                    "institution":group["label"],
+                    "category":category,
+                    "category_label":CATEGORY_LABELS[category],
+                    "title":item_title,
+                    "parent_title":doc.title,
+                    "date":event_date.isoformat(),
+                    "date_basis":date_basis,
+                    "status":"official action recorded" if action else ("public hearing" if hearing else "agenda item"),
+                    "synopsis":_compact(agenda_item.text,500),
+                    "source_url":doc.source_url,
+                    "governing_body":doc.governing_body,
+                    "evidence_count":len(linked),
+                    "agenda_item_count":1,
+                })
+                if len(items)>=limit:
+                    return items
         else:
-            synopsis=_compact(doc.text,380)
-        action_findings=[f for f in findings if f.category=="vote_action"]
-        hearing=any(f.category=="public_hearing" for f in findings)
-        items.append({
-            "kind":"civic",
-            "record_id":doc.id,
-            "source_key":doc.source_key,
-            "institution":group["label"],
-            "category":category,
-            "category_label":CATEGORY_LABELS[category],
-            "title":doc.title,
-            "date":event_date.isoformat(),
-            "date_basis":date_basis,
-            "status":"official action recorded" if action_findings else ("public hearing" if hearing else doc.document_type.replace("_"," ")),
-            "synopsis":synopsis or "Official source record captured for this week.",
-            "source_url":doc.source_url,
-            "governing_body":doc.governing_body,
-            "evidence_count":len(findings),
-            "agenda_item_count":len(agenda),
-        })
-        if len(items)>=limit:
-            break
+            category=_civic_category(doc,findings)
+            matched=[f for f in findings if f.category==category]
+            action_findings=[f for f in findings if f.category=="vote_action"]
+            hearing=any(f.category=="public_hearing" for f in findings)
+            synopsis=_compact(matched[0].evidence,500) if matched else _compact(doc.text,500)
+            items.append({
+                "kind":"civic",
+                "record_id":doc.id,
+                "agenda_item_id":None,
+                "source_key":doc.source_key,
+                "institution":group["label"],
+                "category":category,
+                "category_label":CATEGORY_LABELS[category],
+                "title":doc.title,
+                "parent_title":None,
+                "date":event_date.isoformat(),
+                "date_basis":date_basis,
+                "status":"official action recorded" if action_findings else ("public hearing" if hearing else doc.document_type.replace("_"," ")),
+                "synopsis":synopsis or "Official source record captured for this week.",
+                "source_url":doc.source_url,
+                "governing_body":doc.governing_body,
+                "evidence_count":len(findings),
+                "agenda_item_count":0,
+            })
+            if len(items)>=limit:
+                return items
     return items
 
 def _bill_topic(bill):
