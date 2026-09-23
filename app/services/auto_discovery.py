@@ -9,6 +9,7 @@ from app.services.monitor import BILL_TYPES
 from app.jurisdictions import get_adapter
 from app.services.civic_crawler import scan_civic_source
 from app.services.civic_sources import CIVIC_SOURCES
+from app.services.civic_analysis import analyze_changed_civic_documents
 
 def _cursor(db,source_key,jurisdiction,session=None):
     row=db.scalar(select(DiscoveryCursor).where(DiscoveryCursor.source_key==source_key))
@@ -151,7 +152,12 @@ def discover_civic_source(db,source_key,limit=None):
     db.commit()
     try:
         result=scan_civic_source(db,source_key,limit or settings.auto_discovery_batch_size)
+        analyses=analyze_changed_civic_documents(db,result.get("changed_document_ids",[]))
         result={
+            **result,
+            "analysis_results":analyses,
+            "analysis_completed_count":sum(1 for row in analyses if row.get("status")=="completed"),
+            "analysis_failed_count":sum(1 for row in analyses if row.get("status")=="failed"),
             **result,
             "source_key":f"civic:{source_key}",
             "jurisdiction":source["jurisdiction"],
