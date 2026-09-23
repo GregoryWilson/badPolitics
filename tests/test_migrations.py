@@ -19,8 +19,8 @@ def explicit_model_indexes():
 def test_fresh_database_upgrades_to_head(tmp_path):
     url=sqlite_url(tmp_path/"fresh.db")
     upgrade(url)
-    assert current_revision(url)==head_revision(url)=="0004"
-    assert assert_schema_current(url)=="0004"
+    assert current_revision(url)==head_revision(url)=="0005"
+    assert assert_schema_current(url)=="0005"
 
     engine=create_engine(url)
     try:
@@ -53,9 +53,9 @@ def test_legacy_create_all_schema_can_be_adopted(tmp_path):
     assert current_revision(url) is None
     result=adopt_legacy(url)
     assert result["baseline_revision"]=="0001"
-    assert result["current_revision"]=="0004"
+    assert result["current_revision"]=="0005"
     assert result["table_count"] < len(Base.metadata.tables)
-    assert assert_schema_current(url)=="0004"
+    assert assert_schema_current(url)=="0005"
 
 def test_incomplete_legacy_schema_is_refused(tmp_path):
     url=sqlite_url(tmp_path/"partial.db")
@@ -71,3 +71,39 @@ def test_incomplete_legacy_schema_is_refused(tmp_path):
 def test_application_no_longer_creates_schema_at_import():
     source=(__import__("pathlib").Path(__file__).resolve().parents[1]/"app/main.py").read_text()
     assert "metadata.create_all" not in source
+
+
+def test_session_identity_migration_backfills_and_allows_called_session_duplicate(tmp_path):
+    url=sqlite_url(tmp_path/"sessions.db")
+    upgrade(url,"0004")
+    engine=create_engine(url)
+    try:
+        with engine.begin() as connection:
+            connection.exec_driver_sql(
+                "INSERT INTO bills "
+                "(jurisdiction,congress,bill_type,bill_number,title,latest_action,metadata_json,updated_at) "
+                "VALUES ('TX',89,'hb','1','Regular HB 1',NULL,"
+                "'{\"jurisdiction_session\":\"89R\"}','2026-01-01 00:00:00')"
+            )
+    finally:
+        engine.dispose()
+
+    upgrade(url,"0005")
+    engine=create_engine(url)
+    try:
+        with engine.begin() as connection:
+            row=connection.exec_driver_sql(
+                "SELECT session_code FROM bills WHERE title='Regular HB 1'"
+            ).one()
+            assert row[0]=="89R"
+            connection.exec_driver_sql(
+                "INSERT INTO bills "
+                "(jurisdiction,congress,session_code,bill_type,bill_number,title,latest_action,metadata_json,updated_at) "
+                "VALUES ('TX',89,'89S2','hb','1','Called HB 1',NULL,'{}','2026-09-01 00:00:00')"
+            )
+            count=connection.exec_driver_sql(
+                "SELECT COUNT(*) FROM bills WHERE jurisdiction='TX' AND bill_type='hb' AND bill_number='1'"
+            ).scalar_one()
+            assert count==2
+    finally:
+        engine.dispose()
