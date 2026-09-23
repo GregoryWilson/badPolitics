@@ -136,3 +136,17 @@ def test_discovery_sources_run_independently():
     assert '("civic",source["source_key"])' in main
     assert '("federal",None)' in main
     assert 'include_inactive:bool=False' in main
+
+
+def test_dashboard_supports_weekly_institution_summary():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    main=(ROOT/"app/main.py").read_text()
+    assert 'id="weeklyView"' in html
+    assert 'id="weeklySources"' in html
+    assert 'id="weeklyCategories"' in html
+    assert 'id="showWeekly"' in html
+    assert 'api("/dashboard/sources")' in js
+    assert 'api("/dashboard/weekly/"+encodeURIComponent(state.selectedWeeklySource))' in js
+    assert "What's happening this week in " in js
+    assert '@app.get("/dashboard/weekly/{source_id}")' in main
