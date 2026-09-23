@@ -95,7 +95,7 @@ def test_analysis_get_path_analyzes_unprocessed_revision(tmp_path):
                 meeting_date="2026-09-01",
                 source_url="https://example.test/wylie",
                 external_id="wylie-1",
-                text="RequestedZoning: PD\nCouncilStatus: Approved",
+                text="Requested Zoning: PD\nCouncil Status: Approved",
                 sha256="doc",
                 metadata_json={},
                 first_seen_at=datetime.utcnow(),
