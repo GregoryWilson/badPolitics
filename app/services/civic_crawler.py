@@ -254,14 +254,16 @@ def _arcgis_text(attrs):
     technical={"objectid","globalid","created_user","created_date","last_edited_user","last_edited_date","shape","shape_length","shape_area"}
     lines=[]
     used=set()
+    def label(key):
+        return re.sub(r"(?<!^)(?=[A-Z])"," ",str(key)).replace("_"," ").strip()
     for key in preferred:
         if key in attrs and attrs.get(key) not in (None,"","Null","null"):
-            lines.append(f"{key}: {attrs[key]}")
+            lines.append(f"{label(key)}: {attrs[key]}")
             used.add(key)
     for key,value in attrs.items():
         if key in used or key.casefold() in technical or value in (None,"","Null","null"):
             continue
-        lines.append(f"{key}: {value}")
+        lines.append(f"{label(key)}: {value}")
     return "\n".join(lines)
 
 def _upsert(db,source,title,url,text,metadata=None,external_id=None):
