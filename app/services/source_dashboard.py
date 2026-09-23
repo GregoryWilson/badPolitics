@@ -222,12 +222,12 @@ def _action_status(text):
         return "veto action"
     if "passed" in value or "agreed to" in value:
         return "passed / agreed to"
-    if "reported" in value or "committee" in value:
-        return "committee action"
     if "referred" in value:
         return "referred"
     if "introduced" in value or "filed" in value:
         return "introduced / filed"
+    if "reported" in value or "committee" in value:
+        return "committee action"
     return "legislative action"
 
 def _legislative_week(db,group,start,end,limit):
