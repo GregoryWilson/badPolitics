@@ -275,6 +275,34 @@ The adoption command verifies that all MVP-16 tables and required columns exist 
 
 After MVP-17, all schema changes should be represented by Alembic revisions. `Base.metadata.create_all()` is no longer an application schema-management mechanism.
 
+## MVP-18
+- automatic background discovery enabled by default
+- resumable federal Congress-wide bill cursor
+- pageable full-session Texas TLO bill-history discovery
+- persistent discovery cursor/status/error state
+- repeated discovery cycles for incremental self-healing after initial bootstrap
+- local civic-document crawler with revision history
+- PDF text extraction for agendas, packets, minutes, policies, and attachments
+- GISD Board of Trustees / BoardBook monitoring
+- GISD bond, campus consolidation, and policy monitoring
+- Wylie ISD BoardBook/agenda monitoring
+- City of Wylie structured development/P&Z project ingestion from official ArcGIS services
+- Collin County Commissioners Court/eAgenda monitoring
+- dashboard discovery progress and recent civic records
+- manual discovery/status/civic-document APIs
+
+### Automatic discovery semantics
+
+When `AUTO_DISCOVERY_ENABLED=true`, the application starts a background discovery loop after database migration validation. Legislative discovery is resumable: federal and Texas source cursors advance in bounded batches and persist their offsets in the database. Reaching the end of a source starts a new cycle from the beginning, allowing later cycles to pick up records that moved because of source-side update ordering.
+
+The default federal corpus is the 119th Congress and the default Texas corpus is the 89th Regular Session. These are configurable with `AUTO_DISCOVERY_US_CONGRESS` and `AUTO_DISCOVERY_TX_SESSIONS`.
+
+Local civic discovery preserves the source document URL and extracted text. If an agenda, packet, policy page, meeting record, or structured development record changes, a new `CivicDocumentRevision` is stored rather than overwriting history.
+
+GISD is intentionally treated as a high-priority local source. Current roots include Board of Trustees/BoardBook materials, Bond 2023, campus consolidation, and district policies. Wylie ISD, City of Wylie development/P&Z data, and Collin County Commissioners Court records are also included.
+
+Automatic discovery records source material and changes; it does not assign political importance, motive, or wrongdoing.
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
@@ -284,10 +312,15 @@ docker compose up --build
 
 The API container runs `alembic upgrade head` before starting Uvicorn. Existing pre-MVP-17 volumes must be adopted once as described above.
 
-Open `http://localhost:8000/` for the dashboard or `http://localhost:8000/docs` for the API.
+Open `http://localhost:8000/` for the dashboard or `http://localhost:8000/docs` for the API. With the default configuration, automatic discovery begins in the background after startup.
 
 ## Endpoints
 ```
+GET  /discovery/sources
+POST /discovery/run
+GET  /discovery/status
+GET  /civic-documents
+GET  /civic-documents/{document_id}/revisions
 GET  /jurisdictions
 POST /jurisdictions/{jurisdiction}/ingest/{session}/{bill_type}/{number}
 POST /jurisdictions/{jurisdiction}/discover/{session}?limit=100&ingest=false
