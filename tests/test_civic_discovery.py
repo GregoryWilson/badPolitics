@@ -23,3 +23,18 @@ def test_civic_document_type_classification():
     assert _doc_type("Finance Committee Agenda","https://example.test/doc")=="agenda"
     assert _doc_type("Zoning Case","https://example.test/doc")=="zoning"
     assert _doc_type("Bond Special Meeting","https://example.test/doc")=="bond"
+
+
+def test_sachse_sources_are_registered_and_high_priority():
+    sources={row["source_key"]:row for row in CIVIC_SOURCES}
+    assert sources["sachse_civic_archive"]["priority"]=="high"
+    assert sources["sachse_planning_zoning"]["priority"]=="high"
+    assert "public hearing" in sources["sachse_civic_archive"]["keywords"]
+    assert "planned development" in sources["sachse_civic_archive"]["keywords"]
+
+def test_dallas_county_sources_are_registered_and_high_priority():
+    sources={row["source_key"]:row for row in CIVIC_SOURCES}
+    assert sources["dallas_commissioners"]["priority"]=="high"
+    assert sources["dallas_county_clerk_court"]["priority"]=="high"
+    assert sources["dallas_budget"]["priority"]=="high"
+    assert "court order" in sources["dallas_commissioners"]["keywords"]
