@@ -299,7 +299,7 @@ The default federal corpus is the 119th Congress and the default Texas corpus is
 
 Local civic discovery preserves the source document URL and extracted text. If an agenda, packet, policy page, meeting record, or structured development record changes, a new `CivicDocumentRevision` is stored rather than overwriting history.
 
-GISD is intentionally treated as a high-priority local source. Current roots include Board of Trustees/BoardBook materials, Bond 2023, campus consolidation, and district policies. Wylie ISD, City of Wylie development/P&Z data, and Collin County Commissioners Court records are also included.
+GISD is intentionally treated as a high-priority local source. Current roots include Board of Trustees/BoardBook materials, Bond 2023, campus consolidation, and district policies. City of Sachse is also high priority, including City Council/P&Z, EDC/MDD/TIRZ, public hearings, legal notices, planned developments, development reports, permits, resolutions, and elections. Dallas County high-priority sources include Commissioners Court, the Commissioners Court Clerk, court orders/contracts/meeting records, and county budget materials. Wylie ISD, City of Wylie development/P&Z data, and Collin County Commissioners Court records are also included.
 
 Automatic discovery records source material and changes; it does not assign political importance, motive, or wrongdoing.
 
