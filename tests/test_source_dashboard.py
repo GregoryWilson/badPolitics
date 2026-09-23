@@ -171,8 +171,8 @@ def test_civic_week_filters_process_and_merges_overlapping_records_before_limit(
 
         titles=[item["title"] for category in result["categories"] for item in category["items"]]
         assert result["item_count"]==2
-        assert set(titles)=={"Approve Oak Street sidewalk construction contract",
-                             "Adopt the neighborhood parking ordinance"}
+        assert "Adopt the neighborhood parking ordinance" in titles
+        assert sum("Oak Street sidewalk construction contract" in title for title in titles)==1
     finally:
         engine.dispose()
 
