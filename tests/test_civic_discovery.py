@@ -68,10 +68,10 @@ def test_arcgis_text_suppresses_null_and_technical_fields():
         "Notes":"",
     })
     assert "Example Mixed Use" in text
-    assert "ExistingZoning: AG" in text
-    assert "RequestedZoning: PD" in text
-    assert "CouncilStatus: Approved" in text
-    assert "OrdinanceNumber: 2026-31" in text
+    assert "Existing Zoning: AG" in text
+    assert "Requested Zoning: PD" in text
+    assert "Council Status: Approved" in text
+    assert "Ordinance Number: 2026-31" in text
     assert "OBJECTID" not in text
     assert "GlobalID" not in text
     assert "None" not in text
