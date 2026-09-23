@@ -407,3 +407,17 @@ class CivicDocument(Base):
         Index("ix_civic_documents_source_date","source_key","meeting_date"),
         Index("ix_civic_documents_body_date","governing_body","meeting_date"),
     )
+
+
+class CivicDocumentRevision(Base):
+    __tablename__="civic_document_revisions"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    civic_document_id:Mapped[int]=mapped_column(ForeignKey("civic_documents.id",ondelete="CASCADE"))
+    sha256:Mapped[str]=mapped_column(String(64))
+    text:Mapped[str|None]=mapped_column(Text,nullable=True)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    observed_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(
+        UniqueConstraint("civic_document_id","sha256"),
+        Index("ix_civic_revisions_document_observed","civic_document_id","observed_at"),
+    )
