@@ -33,6 +33,7 @@ from app.services.watch import run_watch,run_active_watches,list_events,get_scan
 from app.services.auto_discovery import discover_federal_batch,discover_texas_batch,discover_civic_source,discovery_status,list_civic_documents,civic_document_revisions
 from app.services.civic_sources import CIVIC_SOURCES
 from app.services.civic_analysis import analyze_civic_document,civic_analysis_result,ensure_civic_analysis
+from app.services.source_dashboard import dashboard_sources,weekly_source_summary
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
@@ -436,6 +437,17 @@ def investigation_queue_update(
         )
     except ValueError as e:
         raise HTTPException(400,str(e))
+
+@app.get("/dashboard/sources")
+def source_dashboard_sources(db:Session=Depends(get_db)):
+    return dashboard_sources(db)
+
+@app.get("/dashboard/weekly/{source_id}")
+def source_dashboard_weekly(source_id:str,limit:int=150,db:Session=Depends(get_db)):
+    try:
+        return weekly_source_summary(db,source_id,limit=max(1,min(limit,500)))
+    except ValueError as e:
+        raise HTTPException(404,str(e))
 
 @app.get("/discovery/sources")
 def discovery_sources():
