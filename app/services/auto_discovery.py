@@ -190,8 +190,21 @@ def run_auto_discovery(db):
         "results":results,
     }
 
-def discovery_status(db):
-    rows=db.scalars(select(DiscoveryCursor).order_by(DiscoveryCursor.source_key)).all()
+def active_discovery_source_keys():
+    keys={f"legis:US:{settings.auto_discovery_us_congress}"}
+    keys.update(
+        f"legis:TX:{session.strip().upper()}"
+        for session in settings.auto_discovery_tx_sessions.split(",")
+        if session.strip()
+    )
+    keys.update(f"civic:{source['source_key']}" for source in CIVIC_SOURCES)
+    return keys
+
+def discovery_status(db,include_inactive=False):
+    q=select(DiscoveryCursor).order_by(DiscoveryCursor.source_key)
+    if not include_inactive:
+        q=q.where(DiscoveryCursor.source_key.in_(active_discovery_source_keys()))
+    rows=db.scalars(q).all()
     return [{
         "source_key":row.source_key,
         "jurisdiction":row.jurisdiction,

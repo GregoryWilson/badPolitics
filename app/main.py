@@ -3,6 +3,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.responses import RedirectResponse
 from pathlib import Path
 import asyncio
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 from app.db.session import get_db,SessionLocal
@@ -29,7 +30,7 @@ from app.schemas.queue import QueueItemUpdate
 from app.services.investigation_queue import sync_bill_queue,list_queue,queue_summary,update_queue_item
 from app.schemas.watch import WatchCreate,WatchUpdate
 from app.services.watch import run_watch,run_active_watches,list_events,get_scan
-from app.services.auto_discovery import run_auto_discovery,discovery_status,list_civic_documents,civic_document_revisions
+from app.services.auto_discovery import discover_federal_batch,discover_texas_batch,discover_civic_source,discovery_status,list_civic_documents,civic_document_revisions
 from app.services.civic_sources import CIVIC_SOURCES
 from app.services.civic_analysis import analyze_civic_document,civic_analysis_result,ensure_civic_analysis
 from app.core.config import settings
@@ -463,8 +464,8 @@ def discovery_runtime():
     return {"running":_discovery_running}
 
 @app.get("/discovery/status")
-def discovery_status_get(db:Session=Depends(get_db)):
-    return discovery_status(db)
+def discovery_status_get(include_inactive:bool=False,db:Session=Depends(get_db)):
+    return discovery_status(db,include_inactive=include_inactive)
 
 @app.get("/civic-documents")
 def civic_documents_list(
@@ -537,12 +538,48 @@ async def _discovery_loop():
             pass
         await asyncio.sleep(interval)
 
-def _run_auto_discovery_background():
+def _run_source_job(kind,value=None):
     db=SessionLocal()
     try:
-        return run_auto_discovery(db)
+        if kind=="federal":
+            return discover_federal_batch(db)
+        if kind=="texas":
+            return discover_texas_batch(db,value)
+        if kind=="civic":
+            return discover_civic_source(db,value)
+        raise ValueError(f"Unknown discovery job kind: {kind}")
     finally:
         db.close()
+
+def _run_auto_discovery_background():
+    jobs=[
+        *[("civic",source["source_key"]) for source in CIVIC_SOURCES],
+        *[
+            ("texas",session.strip())
+            for session in settings.auto_discovery_tx_sessions.split(",")
+            if session.strip()
+        ],
+        ("federal",None),
+    ]
+    results=[]
+    max_workers=max(1,min(6,len(jobs)))
+    with ThreadPoolExecutor(max_workers=max_workers,thread_name_prefix="discovery") as pool:
+        futures={pool.submit(_run_source_job,*job):job for job in jobs}
+        for future in as_completed(futures):
+            kind,value=futures[future]
+            try:
+                results.append(future.result())
+            except Exception as exc:
+                results.append({
+                    "source_key":value or kind,
+                    "status":"error",
+                    "error":str(exc),
+                })
+    return {
+        "ran_at":__import__("datetime").datetime.utcnow().isoformat(),
+        "result_count":len(results),
+        "results":results,
+    }
 
 async def _watch_loop():
     interval=max(1,int(settings.watch_poll_minutes))*60

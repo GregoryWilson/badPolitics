@@ -127,3 +127,12 @@ def test_dashboard_supports_civic_analysis_workspace():
     assert '/civic-documents/"+id+"/analysis' in js
     assert '/civic-documents/"+id+"/analyze' in js
     assert "Civic review signals" in html
+
+
+def test_discovery_sources_run_independently():
+    main=(ROOT/"app/main.py").read_text()
+    assert "ThreadPoolExecutor" in main
+    assert "as_completed" in main
+    assert '("civic",source["source_key"])' in main
+    assert '("federal",None)' in main
+    assert 'include_inactive:bool=False' in main
