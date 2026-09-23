@@ -322,6 +322,16 @@ Named organization links record that an organization name appeared in the source
 
 Revision-change findings record differences between captured official-source revisions. They do not imply that the change was unusual, concealed, or improper.
 
+## Civic source reliability fixes
+- GISD and Wylie ISD use direct BoardBook organization feeds instead of generic district-page crawling
+- current Sachse meetings use the public read-only CivicClerk API; historical Sachse Archive Center collections remain available
+- Dallas County Commissioners Court notices use the County Clerk official/legal-notices record surface
+- City of Wylie ArcGIS records are normalized into non-null human-readable source facts before analysis
+- civic document lists are source-balanced so a large GIS feed cannot hide school/county/municipal sources
+- opening a civic record automatically runs the current analyzer when that revision has not been analyzed yet
+- discovery status reports records enumerated, documents captured, documents analyzed, and fetch errors per source
+- Texas bills use exact session identity, allowing 89R, 89S1, and 89S2 to coexist; all three are discovered by default
+
 ## Start
 Copy `.env.example` to `.env`, add your api.data.gov key, configure the local LLM endpoint, then:
 
