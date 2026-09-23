@@ -98,7 +98,6 @@ async function openWeeklyItem(kind,id){
   renderBillList();
   renderDiscovery();
   $("weeklyView").hidden=true;
-  $("weeklyView").hidden=true;
   $("emptyState").hidden=true;
   $("billView").hidden=true;
   $("civicView").hidden=false;
