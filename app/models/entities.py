@@ -8,7 +8,7 @@ class Bill(Base):
     id:Mapped[int]=mapped_column(primary_key=True)
     jurisdiction:Mapped[str]=mapped_column(String(32),default="US")
     congress:Mapped[int]=mapped_column(Integer)
-    session_code:Mapped[str]=mapped_column(String(64))
+    session_code:Mapped[str]=mapped_column(String(64),default="")
     bill_type:Mapped[str]=mapped_column(String(16))
     bill_number:Mapped[str]=mapped_column(String(32))
     title:Mapped[str|None]=mapped_column(Text)
