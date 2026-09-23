@@ -50,6 +50,15 @@ CIVIC_SOURCES=[
         "priority":"high",
     },
     {
+        "source_key":"sachse_current_meetings",
+        "jurisdiction":"TX-local",
+        "governing_body":"City of Sachse",
+        "kind":"civicclerk",
+        "tenant":"sachsetx",
+        "root_url":"https://sachsetx.portal.civicclerk.com/",
+        "priority":"high",
+    },
+    {
         "source_key":"sachse_council_agendas",
         "jurisdiction":"TX-local",
         "governing_body":"City of Sachse City Council",
