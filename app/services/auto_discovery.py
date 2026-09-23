@@ -206,12 +206,41 @@ def discovery_status(db):
     } for row in rows]
 
 def list_civic_documents(db,source_key=None,governing_body=None,limit=200):
-    q=select(CivicDocument).order_by(CivicDocument.last_seen_at.desc(),CivicDocument.id.desc())
+    requested=max(1,min(limit,1000))
+    q=select(CivicDocument).order_by(
+        CivicDocument.meeting_date.desc(),
+        CivicDocument.last_seen_at.desc(),
+        CivicDocument.id.desc(),
+    )
     if source_key:
         q=q.where(CivicDocument.source_key==source_key)
     if governing_body:
         q=q.where(CivicDocument.governing_body==governing_body)
-    rows=db.scalars(q.limit(max(1,min(limit,1000)))).all()
+    if source_key or governing_body:
+        rows=db.scalars(q.limit(requested)).all()
+    else:
+        pool=db.scalars(q.limit(1000)).all()
+        buckets={}
+        source_order=[]
+        for row in pool:
+            if row.source_key not in buckets:
+                buckets[row.source_key]=[]
+                source_order.append(row.source_key)
+            buckets[row.source_key].append(row)
+        rows=[]
+        index=0
+        while len(rows)<requested:
+            added=False
+            for key in source_order:
+                bucket=buckets[key]
+                if index<len(bucket):
+                    rows.append(bucket[index])
+                    added=True
+                    if len(rows)>=requested:
+                        break
+            if not added:
+                break
+            index+=1
     return [{
         "id":row.id,
         "source_key":row.source_key,
