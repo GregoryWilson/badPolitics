@@ -48,7 +48,21 @@ def upgrade():
     op.create_index("ix_civic_documents_source_date","civic_documents",["source_key","meeting_date"])
     op.create_index("ix_civic_documents_body_date","civic_documents",["governing_body","meeting_date"])
 
+    op.create_table(
+        "civic_document_revisions",
+        sa.Column("id",sa.Integer(),primary_key=True),
+        sa.Column("civic_document_id",sa.Integer(),sa.ForeignKey("civic_documents.id",ondelete="CASCADE"),nullable=False),
+        sa.Column("sha256",sa.String(64),nullable=False),
+        sa.Column("text",sa.Text(),nullable=True),
+        sa.Column("metadata_json",sa.JSON(),nullable=False),
+        sa.Column("observed_at",sa.DateTime(),nullable=False),
+        sa.UniqueConstraint("civic_document_id","sha256"),
+    )
+    op.create_index("ix_civic_revisions_document_observed","civic_document_revisions",["civic_document_id","observed_at"])
+
 def downgrade():
+    op.drop_index("ix_civic_revisions_document_observed",table_name="civic_document_revisions")
+    op.drop_table("civic_document_revisions")
     op.drop_index("ix_civic_documents_body_date",table_name="civic_documents")
     op.drop_index("ix_civic_documents_source_date",table_name="civic_documents")
     op.drop_table("civic_documents")
