@@ -337,6 +337,7 @@ Revision-change findings record differences between captured official-source rev
 - selectable Sachse, Wylie, Wylie ISD, Garland ISD, Dallas County, Collin County, Texas Legislature, and U.S. Congress views
 - combines multiple underlying feeds into one institution-level synopsis
 - civic meeting documents are broken into agenda/action items when structured agenda items are available
+- BoardBook agenda rows are read as numbered items, including Roman numbered sections, without attachment lists or page navigation
 - activity is grouped into deterministic logical categories such as development/land use, contracts/procurement, budget/finance, taxes/bonds/debt, school facilities/boundaries, policies/rules, hearings, votes/actions, property/land, and elections/governance
 - legislative activity is grouped into deterministic subject categories and uses dated legislative actions for the current calendar week
 - every summary item retains a drill-down record ID and official source URL

@@ -11,7 +11,7 @@ from app.models.entities import (
 from app.services.graph import get_or_create_entity
 
 MONEY_RE=re.compile(r"(?<!\w)\$\s?\d[\d,]*(?:\.\d{1,2})?(?:\s?(?:million|billion|thousand|M|B|K))?",re.I)
-ITEM_RE=re.compile(r"^\s*(?:item\s+)?([A-Z]\d{1,3}|[A-Z]|\d+(?:\.\d+)*[A-Z]?)[.):]\s*(.+)$",re.I)
+ITEM_RE=re.compile(r"^\s*(?:item\s+)?([IVXLCDM]+(?:\.[A-Z0-9]+)*|[A-Z]\d{1,3}|[A-Z]|\d+(?:\.\d+)*[A-Z]?)[.):]\s*(.+)$",re.I)
 ACTION_RE=re.compile(r"^\s*(consider|discuss|approve|adopt|authorize|award|public hearing|receive|review|vote|resolution)\b",re.I)
 BARE_NUMBERED_ACTION_RE=re.compile(
     r"^\s*(\d{1,2})\s+((?:consider|discuss|approve|adopt|authorize|award|"
@@ -31,9 +31,13 @@ CITY_HALL_CONTACT_RE=re.compile(
 )
 
 def agenda_section_label(item_number,heading):
-    if not re.fullmatch(r"[A-Z]\.?",(item_number or "").strip(),re.I):
+    number=(item_number or "").strip().strip(".")
+    if not (re.fullmatch(r"[A-Z]",number,re.I) or
+            re.fullmatch(r"[IVXLCDM]+",number,re.I)):
         return None
     label=" ".join((heading or "").strip(" .:-").split())
+    if re.match(r"^consent agenda\s*[-:]",label,re.I):
+        return "Consent Agenda"
     return label if SECTION_RE.fullmatch(label) else None
 ORG_RE=re.compile(
     r"\b((?:[A-Z][A-Za-z0-9&.'/-]*\s+){0,7}[A-Z][A-Za-z0-9&.'/-]*\s+"

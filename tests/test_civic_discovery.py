@@ -10,7 +10,9 @@ import app.models.entities  # noqa: F401
 from app.models.entities import CivicDocument, CivicDocumentRevision, DiscoveryCursor
 from app.services.auto_discovery import list_civic_documents, discovery_status
 from app.services.civic_analysis import ensure_civic_analysis, ANALYZER_VERSION
-from app.services.civic_crawler import _extract_date, _doc_type, _arcgis_text, scan_civic_source
+from app.services.civic_crawler import _extract_date, _doc_type, _arcgis_text, _boardbook_agenda_text, scan_civic_source
+from app.services.civic_analysis import _extract_items, agenda_section_label
+from bs4 import BeautifulSoup
 from app.services.civic_sources import CIVIC_SOURCES
 from app.services.source_dashboard import weekly_source_summary
 
@@ -60,6 +62,19 @@ def test_collin_eagenda_yields_dated_agenda_items(tmp_path,monkeypatch):
             assert items[0]["source_url"]==doc.source_url
     finally:
         engine.dispose()
+
+def test_boardbook_roman_items_keep_sections_and_drop_attachment_clutter():
+    soup=BeautifulSoup('''<title>Public Meeting Agenda: September 22, 2026</title>
+      <tr class="agenda-item-information"><td><div class="form-check">VI. Consent Agenda - Consider approval of</div></td></tr>
+      <tr class="agenda-item-information"><td><div class="form-check">VI.A. Approve a $250,000 construction contract</div>
+      <a class="fileNameValue">Attachment with timestamp</a></td></tr>
+      <tr class="agenda-item-information"><td><div class="form-check">VII. Adjournment</div></td></tr>''','lxml')
+    text=_boardbook_agenda_text(soup)
+    assert "Attachment with timestamp" not in text
+    items=_extract_items(text)
+    assert [row["item_number"] for row in items]==["VI","VI.A"]
+    assert agenda_section_label(items[0]["item_number"],items[0]["heading"])=="Consent Agenda"
+    assert "construction contract" in items[1]["heading"]
 
 def test_sachse_current_and_historical_sources_are_registered():
     sources={row["source_key"]:row for row in CIVIC_SOURCES}

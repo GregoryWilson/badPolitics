@@ -96,6 +96,18 @@ def _candidate_title(soup,fallback):
             return value
     return fallback
 
+def _boardbook_agenda_text(soup):
+    headings=[]
+    for row in soup.select("tr.agenda-item-information"):
+        title=row.select_one(".form-check")
+        if title:
+            value=" ".join(title.get_text(" ",strip=True).split())
+            if value:
+                headings.append(value)
+    if not headings:
+        return None
+    return "\n".join([_candidate_title(soup,"Agenda"),*headings])
+
 def _scan_seeded_pages(db,source,seeds,limit=50,follow_selector=None):
     client=httpx.Client(
         headers={
@@ -124,6 +136,8 @@ def _scan_seeded_pages(db,source,seeds,limit=50,follow_selector=None):
                 response.raise_for_status()
                 soup=BeautifulSoup(response.text,"lxml")
                 title=_candidate_title(soup,title)
+                if source["kind"]=="boardbook" and "/public/agenda/" in urlparse(final_url).path.casefold():
+                    text=_boardbook_agenda_text(soup) or text
             row,changed=_upsert(
                 db,source,title,final_url,text,
                 metadata={
