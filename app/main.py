@@ -37,7 +37,7 @@ from app.services.source_dashboard import dashboard_sources,weekly_source_summar
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
-app=FastAPI(title="LegisWatch",version="2.0.0")
+app=FastAPI(title="LegisWatch",version="2.1.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -46,7 +46,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"2.0.0","watch_poll_minutes":settings.watch_poll_minutes,"auto_discovery_enabled":settings.auto_discovery_enabled,"auto_discovery_minutes":settings.auto_discovery_minutes}
+def health(): return {"ok":True,"version":"2.1.0","watch_poll_minutes":settings.watch_poll_minutes,"auto_discovery_enabled":settings.auto_discovery_enabled,"auto_discovery_minutes":settings.auto_discovery_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
