@@ -1,4 +1,4 @@
-const state={bills:[],selected:null,report:null,watches:[],events:[],queue:[],queueSummary:null,discovery:[],civic:[]};
+const state={bills:[],selected:null,selectedCivic:null,report:null,watches:[],events:[],queue:[],queueSummary:null,discovery:[],civic:[]};
 
 const $=id=>document.getElementById(id);
 const esc=v=>String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c]));
@@ -51,13 +51,13 @@ function renderDiscovery(){
       '<div class="discovery-detail">'+esc(row.status)+' · '+esc(progress)+(row.last_error?' · '+esc(row.last_error):'')+'</div>'+
       '</div>';
   }).join(""):'<div class="notice">Discovery has not run yet.</div>';
-  $("civicList").innerHTML=state.civic.length?state.civic.slice(0,12).map(row=>
-    '<div class="civic-item">'+
+  $("civicList").innerHTML=state.civic.length?state.civic.slice(0,20).map(row=>
+    '<div class="civic-item '+(state.selectedCivic?.id===row.id?'selected':'')+'" data-civic-id="'+esc(row.id)+'">'+
       '<div class="civic-title">'+esc(row.title)+'</div>'+
       '<div class="civic-detail">'+esc(row.governing_body)+' · '+esc(row.document_type)+(row.meeting_date?' · '+esc(row.meeting_date):'')+'</div>'+
-      (safeUrl(row.source_url)?'<a class="source-link" target="_blank" rel="noreferrer" href="'+esc(safeUrl(row.source_url))+'">Official source</a>':'')+
       '</div>'
   ).join(""):'<div class="notice">No civic records captured yet.</div>';
+  document.querySelectorAll(".civic-item[data-civic-id]").forEach(el=>el.onclick=()=>selectCivicDocument(Number(el.dataset.civicId)));
 }
 let discoveryPollTimer=null;
 async function pollDiscoveryUntilIdle(){
@@ -103,6 +103,79 @@ async function runDiscovery(){
     status("Discovery failed to start: "+e.message,"error");
     $("runDiscovery").disabled=false;
   }
+}
+
+async function selectCivicDocument(id){
+  const doc=state.civic.find(row=>row.id===id);
+  if(!doc)return;
+  state.selectedCivic=doc;
+  state.selected=null;
+  renderDiscovery();
+  renderBillList();
+  $("emptyState").hidden=true;
+  $("billView").hidden=true;
+  $("civicView").hidden=false;
+  $("civicEyebrow").textContent=doc.governing_body+" · "+doc.document_type.replaceAll("_"," ");
+  $("civicTitle").textContent=doc.title;
+  $("civicMeta").textContent=(doc.meeting_date||"Undated")+" · "+doc.source_key;
+  const source=safeUrl(doc.source_url);
+  $("civicSourceLink").hidden=!source;
+  if(source)$("civicSourceLink").href=source;
+  status("Loading civic analysis…");
+  try{
+    let analysis;
+    try{
+      analysis=await api("/civic-documents/"+id+"/analysis");
+    }catch{
+      analysis=await api("/civic-documents/"+id+"/analyze",{method:"POST"});
+    }
+    renderCivicAnalysis(analysis);
+    status("");
+  }catch(e){
+    $("civicFindings").innerHTML='<div class="notice">Civic analysis is unavailable: '+esc(e.message)+'</div>';
+    $("civicAgendaItems").innerHTML="";
+    $("civicEntities").innerHTML="";
+    status("");
+  }
+}
+function renderCivicAnalysis(result){
+  const findings=result.findings||[];
+  const items=result.agenda_items||[];
+  const entities=result.entities||[];
+  const money=findings.find(f=>f.category==="explicit_money_mentions");
+  const revisions=findings.filter(f=>f.category==="document_revision_change").length;
+  const categories=new Set(findings.map(f=>f.category));
+  $("civicMetrics").innerHTML=[
+    ["Agenda/action items",items.length],
+    ["Review signals",findings.length],
+    ["Signal categories",categories.size],
+    ["Named organizations",entities.length],
+    ["Money mentions",money?.metadata?.mention_count||0],
+    ["Revision changes",revisions],
+  ].map(([label,value])=>'<div class="metric"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>').join("");
+  $("civicFindings").innerHTML=findings.length?findings.map(f=>
+    '<article class="card"><h3>'+esc(f.category.replaceAll("_"," "))+'</h3>'+
+    '<div class="meta"><span class="badge">'+esc(f.category)+'</span><span>Confidence '+esc(Number(f.confidence).toFixed(2))+'</span></div>'+
+    '<div>'+esc(f.statement)+'</div><div class="evidence">'+esc(f.evidence)+'</div></article>'
+  ).join(""):'<div class="notice">No deterministic civic review signals found in this revision.</div>';
+  $("civicAgendaItems").innerHTML=items.length?items.map(item=>
+    '<article class="card"><h3>'+esc((item.item_number?item.item_number+" · ":"")+(item.heading||"Agenda item"))+'</h3>'+
+    '<div class="evidence">'+esc(item.text)+'</div></article>'
+  ).join(""):'<div class="notice">No agenda/action item structure was detected in this document.</div>';
+  $("civicEntities").innerHTML=entities.length?entities.map(entity=>
+    '<div class="card"><strong>'+esc(entity.name)+'</strong><div class="meta"><span class="badge">'+esc(entity.entity_type)+'</span><span>'+esc(entity.link_type.replaceAll("_"," "))+'</span></div><div class="evidence">'+esc(entity.evidence)+'</div></div>'
+  ).join(""):'<div class="notice">No organization names matched the deterministic entity pattern.</div>';
+}
+async function reanalyzeSelectedCivic(){
+  if(!state.selectedCivic)return;
+  $("reanalyzeCivic").disabled=true;
+  status("Reanalyzing civic record…");
+  try{
+    const result=await api("/civic-documents/"+state.selectedCivic.id+"/analyze",{method:"POST"});
+    renderCivicAnalysis(result);
+    status("Civic analysis refreshed.","success");
+  }catch(e){status("Civic analysis failed: "+e.message,"error")}
+  finally{$("reanalyzeCivic").disabled=false}
 }
 
 async function loadQueueData(){
@@ -280,8 +353,8 @@ function renderBillList(){
 
 async function selectBill(id){
   const bill=state.bills.find(b=>b.id===id); if(!bill)return;
-  state.selected=bill; state.report=null; renderBillList(); updateWatchButton();
-  $("emptyState").hidden=true;$("billView").hidden=false;
+  state.selected=bill; state.selectedCivic=null; state.report=null; renderBillList(); renderDiscovery(); updateWatchButton();
+  $("emptyState").hidden=true;$("civicView").hidden=true;$("billView").hidden=false;
   $("billIdLine").textContent=`${bill.bill_type.toUpperCase()} ${bill.bill_number} · ${bill.jurisdiction} · ${bill.session}`;
   $("billTitle").textContent=bill.title||"Untitled bill";
   $("latestAction").textContent=bill.latest_action||"No latest action recorded.";
@@ -540,4 +613,5 @@ $("watchSession").onclick=watchSelectedSession;
 $("runResearch").onclick=runResearch;
 $("buildReport").onclick=buildReport;
 $("queueStatusFilter").onchange=loadQueueData;
+$("reanalyzeCivic").onclick=reanalyzeSelectedCivic;
 Promise.all([loadBills(),loadWatchData(),loadQueueData(),loadDiscoveryData()]);
