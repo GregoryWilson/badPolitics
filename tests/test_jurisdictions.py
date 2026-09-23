@@ -126,3 +126,21 @@ def test_texas_discovery_uses_session_history_index(monkeypatch):
     assert result["session"]=="89R"
     assert result["bills"][0]["bill_type"]=="HB"
     assert result["bills"][0]["number"]=="9"
+
+
+def test_texas_discovery_pages_full_history_index(monkeypatch):
+    adapter=TexasTLOAdapter()
+    raw=b"""<history>
+      <file>HB00001.xml</file>
+      <file>HB00002.xml</file>
+      <file>SB00001.xml</file>
+      <file>SB00002.xml</file>
+    </history>"""
+    monkeypatch.setattr(adapter,"_ftp_bytes",lambda path:raw)
+    result=adapter.discover_bills("89R",limit=2,offset=1)
+    assert [(x["bill_type"],x["number"]) for x in result["bills"]]==[
+        ("HB","2"),("SB","1")
+    ]
+    assert result["offset"]==1
+    assert result["total"]==4
+    assert result["next_offset"]==3
