@@ -151,8 +151,16 @@ def discover_civic_source(db,source_key,limit=None):
     cursor.status="running"; cursor.last_started_at=datetime.utcnow(); cursor.updated_at=cursor.last_started_at
     db.commit()
     try:
-        result=scan_civic_source(db,source_key,limit or settings.auto_discovery_batch_size)
-        analyses=analyze_changed_civic_documents(db,result.get("changed_document_ids",[]))
+        analysis_limit=max(int(limit or settings.auto_discovery_batch_size),50)
+        result=scan_civic_source(db,source_key,analysis_limit)
+        backfill_ids=db.scalars(
+            select(CivicDocument.id)
+            .where(CivicDocument.source_key==source_key)
+            .order_by(CivicDocument.last_seen_at.desc(),CivicDocument.id.desc())
+            .limit(analysis_limit)
+        ).all()
+        analysis_ids=sorted(set(result.get("changed_document_ids",[]))|set(backfill_ids))
+        analyses=analyze_changed_civic_documents(db,analysis_ids)
         result={
             **result,
             "analysis_results":analyses,
