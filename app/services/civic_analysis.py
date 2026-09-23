@@ -259,6 +259,15 @@ def civic_analysis_result(db,document_id,revision_id=None):
         .where(CivicEntityLink.civic_document_id==doc.id,CivicEntityLink.revision_id==revision.id)
         .order_by(EvidenceEntity.canonical_name)
     ).all()
+    raw_attributes=(doc.metadata_json or {}).get("attributes") or {}
+    structured_facts=[]
+    technical={"objectid","globalid","created_user","created_date","last_edited_user","last_edited_date","shape","shape_length","shape_area"}
+    for key,value in raw_attributes.items():
+        if key.casefold() in technical or value in (None,"","Null","null"):
+            continue
+        label=re.sub(r"(?<!^)(?=[A-Z])"," ",str(key)).replace("_"," ").strip()
+        structured_facts.append({"field":key,"label":label,"value":value})
+
     return {
         "document":{
             "id":doc.id,"source_key":doc.source_key,"jurisdiction":doc.jurisdiction,
@@ -273,6 +282,7 @@ def civic_analysis_result(db,document_id,revision_id=None):
             "analyzed_at":(revision.metadata_json or {}).get("civic_analyzed_at"),
         },
         "analysis_ready":(revision.metadata_json or {}).get("civic_analysis_version")==ANALYZER_VERSION,
+        "structured_facts":structured_facts,
         "agenda_items":[{
             "id":i.id,"ordinal":i.ordinal,"item_number":i.item_number,
             "heading":i.heading,"text":i.text,
