@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.db.base import Base
 import app.models.entities  # noqa: F401
-from app.models.entities import CivicDocument, CivicDocumentRevision
-from app.services.auto_discovery import list_civic_documents
+from app.models.entities import CivicDocument, CivicDocumentRevision, DiscoveryCursor
+from app.services.auto_discovery import list_civic_documents, discovery_status
 from app.services.civic_analysis import ensure_civic_analysis, ANALYZER_VERSION
 from app.services.civic_crawler import _extract_date, _doc_type, _arcgis_text
 from app.services.civic_sources import CIVIC_SOURCES
@@ -149,5 +149,37 @@ def test_civic_list_round_robins_across_sources(tmp_path):
             rows=list_civic_documents(db,limit=8)
             keys={row["source_key"] for row in rows}
             assert {"wylie_development_projects","gisd_board","sachse_current_meetings","dallas_commissioners_notices"} <= keys
+    finally:
+        engine.dispose()
+
+
+def test_discovery_status_hides_retired_sources_by_default(tmp_path):
+    engine=_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            db.add(DiscoveryCursor(
+                source_key="civic:sachse_civic_archive",
+                jurisdiction="TX-local",
+                session=None,
+                cursor_json={"offset":0},
+                cycle=3,
+                status="idle",
+                updated_at=datetime.utcnow(),
+            ))
+            db.add(DiscoveryCursor(
+                source_key="civic:gisd_board",
+                jurisdiction="TX-local",
+                session=None,
+                cursor_json={"offset":0},
+                cycle=3,
+                status="idle",
+                updated_at=datetime.utcnow(),
+            ))
+            db.commit()
+            active={row["source_key"] for row in discovery_status(db)}
+            all_rows={row["source_key"] for row in discovery_status(db,include_inactive=True)}
+            assert "civic:gisd_board" in active
+            assert "civic:sachse_civic_archive" not in active
+            assert "civic:sachse_civic_archive" in all_rows
     finally:
         engine.dispose()
