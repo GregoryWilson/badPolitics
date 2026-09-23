@@ -448,9 +448,17 @@ def discovery_sources():
         "civic":CIVIC_SOURCES,
     }
 
-@app.post("/discovery/run")
-def discovery_run(db:Session=Depends(get_db)):
-    return run_auto_discovery(db)
+@app.post("/discovery/run",status_code=202)
+async def discovery_run():
+    global _manual_discovery_task
+    if _discovery_running:
+        return {"accepted":False,"status":"already_running"}
+    _manual_discovery_task=asyncio.create_task(_run_discovery_once())
+    return {"accepted":True,"status":"started"}
+
+@app.get("/discovery/runtime")
+def discovery_runtime():
+    return {"running":_discovery_running}
 
 @app.get("/discovery/status")
 def discovery_status_get(db:Session=Depends(get_db)):
@@ -489,12 +497,24 @@ def report_get(report_id:int,db:Session=Depends(get_db)):
 
 _watch_task=None
 _discovery_task=None
+_manual_discovery_task=None
+_discovery_running=False
+
+async def _run_discovery_once():
+    global _discovery_running
+    if _discovery_running:
+        return {"status":"already_running"}
+    _discovery_running=True
+    try:
+        return await asyncio.to_thread(_run_auto_discovery_background)
+    finally:
+        _discovery_running=False
 
 async def _discovery_loop():
     interval=max(1,int(settings.auto_discovery_minutes))*60
     while True:
         try:
-            await asyncio.to_thread(_run_auto_discovery_background)
+            await _run_discovery_once()
         except Exception:
             pass
         await asyncio.sleep(interval)
@@ -540,14 +560,16 @@ async def start_watch_loop():
 
 @app.on_event("shutdown")
 async def stop_auto_discovery_loop():
-    global _discovery_task
-    if _discovery_task:
-        _discovery_task.cancel()
-        try:
-            await _discovery_task
-        except asyncio.CancelledError:
-            pass
-        _discovery_task=None
+    global _discovery_task,_manual_discovery_task
+    for task in (_manual_discovery_task,_discovery_task):
+        if task:
+            task.cancel()
+            try:
+                await task
+            except asyncio.CancelledError:
+                pass
+    _manual_discovery_task=None
+    _discovery_task=None
 
 @app.on_event("shutdown")
 async def stop_watch_loop():
