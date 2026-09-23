@@ -46,9 +46,15 @@ function renderDiscovery(){
     const cls=row.status==="error"?" error":(row.status==="running"?" running":"");
     const progress=last.source_total?((last.offset||0)+(last.source_count||0))+"/"+last.source_total:
       (last.reported_total?((last.offset||0)+(last.source_count||0))+"/"+last.reported_total:"cycle "+esc(row.cycle));
+    const civicBits=[];
+    if(last.document_count!==undefined)civicBits.push(last.document_count+" docs");
+    if(last.records_enumerated!==undefined)civicBits.push(last.records_enumerated+" enumerated");
+    if(last.analysis_completed_count!==undefined)civicBits.push(last.analysis_completed_count+" analyzed");
+    if(last.error_count)civicBits.push(last.error_count+" fetch error(s)");
+    if(last.failed_count)civicBits.push(last.failed_count+" ingest failure(s)");
     return '<div class="discovery-source'+cls+'">'+
       '<div class="discovery-title">'+esc(row.source_key)+'</div>'+
-      '<div class="discovery-detail">'+esc(row.status)+' · '+esc(progress)+(row.last_error?' · '+esc(row.last_error):'')+'</div>'+
+      '<div class="discovery-detail">'+esc(row.status)+' · '+esc(progress)+(civicBits.length?' · '+esc(civicBits.join(" · ")):'')+(row.last_error?' · '+esc(row.last_error):'')+'</div>'+
       '</div>';
   }).join(""):'<div class="notice">Discovery has not run yet.</div>';
   $("civicList").innerHTML=state.civic.length?state.civic.slice(0,20).map(row=>
