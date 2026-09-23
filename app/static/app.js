@@ -139,6 +139,7 @@ async function selectCivicDocument(id){
     status("");
   }catch(e){
     $("civicFindings").innerHTML='<div class="notice">Civic analysis is unavailable: '+esc(e.message)+'</div>';
+    $("civicFacts").innerHTML="";
     $("civicAgendaItems").innerHTML="";
     $("civicEntities").innerHTML="";
     status("");
@@ -146,12 +147,14 @@ async function selectCivicDocument(id){
 }
 function renderCivicAnalysis(result){
   const findings=result.findings||[];
+  const facts=result.structured_facts||[];
   const items=result.agenda_items||[];
   const entities=result.entities||[];
   const money=findings.find(f=>f.category==="explicit_money_mentions");
   const revisions=findings.filter(f=>f.category==="document_revision_change").length;
   const categories=new Set(findings.map(f=>f.category));
   $("civicMetrics").innerHTML=[
+    ["Source facts",facts.length],
     ["Agenda/action items",items.length],
     ["Review signals",findings.length],
     ["Signal categories",categories.size],
@@ -159,6 +162,9 @@ function renderCivicAnalysis(result){
     ["Money mentions",money?.metadata?.mention_count||0],
     ["Revision changes",revisions],
   ].map(([label,value])=>'<div class="metric"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>').join("");
+  $("civicFacts").innerHTML=facts.length?facts.map(fact=>
+    '<div class="card"><strong>'+esc(fact.label)+'</strong><div class="evidence">'+esc(fact.value)+'</div></div>'
+  ).join(""):'<div class="notice">No structured source facts are attached to this record.</div>';
   $("civicFindings").innerHTML=findings.length?findings.map(f=>
     '<article class="card"><h3>'+esc(f.category.replaceAll("_"," "))+'</h3>'+
     '<div class="meta"><span class="badge">'+esc(f.category)+'</span><span>Confidence '+esc(Number(f.confidence).toFixed(2))+'</span></div>'+
