@@ -2,12 +2,13 @@ import hashlib
 import io
 import json
 import re
-from datetime import datetime
+from datetime import datetime,date,timedelta
 from urllib.parse import urljoin,urlparse
 
 import httpx
 from bs4 import BeautifulSoup
 from pypdf import PdfReader
+from libmuni.civicclerk import CivicClerkClient
 from sqlalchemy import select
 
 from app.models.entities import CivicDocument,CivicDocumentRevision
@@ -372,6 +373,115 @@ def scan_html_source(db,source,limit=50):
         "errors":errors[:20],
     }
 
+
+def scan_civicclerk_source(db,source,limit=75):
+    tenant=source["tenant"]
+    documents=[]
+    changed_ids=[]
+    errors=[]
+    enumerated=0
+    from_date=date.today()-timedelta(days=730)
+    to_date=date.today()+timedelta(days=180)
+    try:
+        with CivicClerkClient(tenant) as client:
+            events=list(client.iter_events(from_date=from_date,to_date=to_date))
+            events=sorted(
+                events,
+                key=lambda event:getattr(event,"starts_at",None) or datetime.min,
+                reverse=True,
+            )
+            enumerated=len(events)
+            for event in events:
+                if len(documents)>=limit:
+                    break
+                event_name=getattr(event,"name",None) or "Sachse public meeting"
+                starts=getattr(event,"starts_at",None)
+                meeting_date=starts.date().isoformat() if hasattr(starts,"date") else None
+                agenda_id=getattr(event,"agenda_id",None)
+                if agenda_id and len(documents)<limit:
+                    try:
+                        agenda=client.get_agenda(agenda_id)
+                        lines=[]
+                        for item in agenda.walk_items():
+                            name=getattr(item,"name",None)
+                            if name:
+                                lines.append(str(name).strip())
+                        text="\n".join(x for x in lines if x)[:1_500_000]
+                        if text:
+                            row,changed=_upsert(
+                                db,source,
+                                f"{event_name} - Agenda",
+                                f"https://{tenant}.portal.civicclerk.com/",
+                                text,
+                                metadata={
+                                    "format":"structured_agenda",
+                                    "source_kind":"civicclerk",
+                                    "tenant":tenant,
+                                    "agenda_id":agenda_id,
+                                    "meeting_date":meeting_date,
+                                },
+                                external_id=f"agenda:{agenda_id}",
+                            )
+                            if meeting_date:
+                                row.meeting_date=meeting_date
+                            documents.append(row.id)
+                            if changed:
+                                changed_ids.append(row.id)
+                    except Exception as exc:
+                        errors.append({"event":event_name,"agenda_id":agenda_id,"error":str(exc)})
+                for published in getattr(event,"published_files",[]) or []:
+                    if len(documents)>=limit:
+                        break
+                    file_id=getattr(published,"file_id",None)
+                    if file_id is None:
+                        continue
+                    file_name=(
+                        getattr(published,"file_name",None)
+                        or getattr(published,"name",None)
+                        or getattr(published,"title",None)
+                        or f"Published file {file_id}"
+                    )
+                    try:
+                        text=client.get_file_text(file_id) or ""
+                        file_url=(
+                            f"https://{tenant}.api.civicclerk.com/v1/"
+                            f"Meetings/GetMeetingFileStream(fileId={file_id},plainText=false)"
+                        )
+                        row,changed=_upsert(
+                            db,source,
+                            f"{event_name} - {file_name}",
+                            file_url,
+                            text,
+                            metadata={
+                                "format":"civicclerk_file",
+                                "source_kind":"civicclerk",
+                                "tenant":tenant,
+                                "file_id":file_id,
+                                "meeting_date":meeting_date,
+                                "event_name":event_name,
+                            },
+                            external_id=f"file:{file_id}",
+                        )
+                        if meeting_date:
+                            row.meeting_date=meeting_date
+                        documents.append(row.id)
+                        if changed:
+                            changed_ids.append(row.id)
+                    except Exception as exc:
+                        errors.append({"event":event_name,"file_id":file_id,"error":str(exc)})
+            db.commit()
+    except Exception as exc:
+        errors.append({"root_url":source["root_url"],"error":str(exc)})
+    return {
+        "source_key":source["source_key"],
+        "root_reached":enumerated>0,
+        "records_enumerated":enumerated,
+        "document_count":len(documents),
+        "changed_document_ids":changed_ids,
+        "error_count":len(errors),
+        "errors":errors[:20],
+    }
+
 def scan_arcgis_source(db,source,limit=500):
     response=httpx.get(
         source["root_url"],
@@ -424,6 +534,8 @@ def scan_civic_source(db,source_key,limit=50):
         raise ValueError(f"Unknown civic source: {source_key}")
     if source["kind"]=="arcgis":
         return scan_arcgis_source(db,source,limit=max(limit,500))
+    if source["kind"]=="civicclerk":
+        return scan_civicclerk_source(db,source,limit=max(limit,75))
     if source["kind"]=="boardbook":
         return scan_boardbook_source(db,source,limit=limit)
     if source["kind"]=="civicengage_archive":
