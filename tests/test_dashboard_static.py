@@ -104,3 +104,13 @@ def test_dashboard_supports_automatic_discovery_and_civic_records():
     assert 'api("/discovery/status")' in js
     assert 'api("/civic-documents?limit=25")' in js
     assert 'api("/discovery/run"' in js
+
+
+def test_discovery_run_is_non_blocking_and_live_polled():
+    js=(ROOT/"app/static/app.js").read_text()
+    main=(ROOT/"app/main.py").read_text()
+    assert 'api("/discovery/runtime")' in js
+    assert 'setInterval(tick,2000)' in js
+    assert 'Discovery started. Showing live progress.' in js
+    assert '@app.post("/discovery/run",status_code=202)' in main
+    assert 'asyncio.create_task(_run_discovery_once())' in main
