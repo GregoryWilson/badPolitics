@@ -31,10 +31,11 @@ from app.schemas.watch import WatchCreate,WatchUpdate
 from app.services.watch import run_watch,run_active_watches,list_events,get_scan
 from app.services.auto_discovery import run_auto_discovery,discovery_status,list_civic_documents,civic_document_revisions
 from app.services.civic_sources import CIVIC_SOURCES
+from app.services.civic_analysis import analyze_civic_document,civic_analysis_result
 from app.core.config import settings
 from app.jurisdictions import list_adapters
 
-app=FastAPI(title="LegisWatch",version="1.9.0")
+app=FastAPI(title="LegisWatch",version="2.0.0")
 STATIC_DIR=Path(__file__).resolve().parent/"static"
 app.mount("/static",StaticFiles(directory=str(STATIC_DIR)),name="static")
 
@@ -43,7 +44,7 @@ def dashboard():
     return RedirectResponse(url="/static/index.html")
 
 @app.get("/health")
-def health(): return {"ok":True,"version":"1.9.0","watch_poll_minutes":settings.watch_poll_minutes,"auto_discovery_enabled":settings.auto_discovery_enabled,"auto_discovery_minutes":settings.auto_discovery_minutes}
+def health(): return {"ok":True,"version":"2.0.0","watch_poll_minutes":settings.watch_poll_minutes,"auto_discovery_enabled":settings.auto_discovery_enabled,"auto_discovery_minutes":settings.auto_discovery_minutes}
 
 @app.post("/ingest/federal/{congress}/{bill_type}/{number}")
 def ingest(congress:int,bill_type:str,number:str,db:Session=Depends(get_db)):
@@ -478,6 +479,22 @@ def civic_documents_list(
 def civic_document_revision_list(document_id:int,db:Session=Depends(get_db)):
     try:
         return civic_document_revisions(db,document_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+
+@app.post("/civic-documents/{document_id}/analyze")
+def civic_document_analyze(document_id:int,db:Session=Depends(get_db)):
+    try:
+        return analyze_civic_document(db,document_id)
+    except ValueError as e:
+        raise HTTPException(404,str(e))
+    except Exception as e:
+        raise HTTPException(502,f"Civic analysis failed: {e}")
+
+@app.get("/civic-documents/{document_id}/analysis")
+def civic_document_analysis(document_id:int,revision_id:int|None=None,db:Session=Depends(get_db)):
+    try:
+        return civic_analysis_result(db,document_id,revision_id=revision_id)
     except ValueError as e:
         raise HTTPException(404,str(e))
 
