@@ -8,6 +8,7 @@ class Bill(Base):
     id:Mapped[int]=mapped_column(primary_key=True)
     jurisdiction:Mapped[str]=mapped_column(String(32),default="US")
     congress:Mapped[int]=mapped_column(Integer)
+    session_code:Mapped[str]=mapped_column(String(64))
     bill_type:Mapped[str]=mapped_column(String(16))
     bill_number:Mapped[str]=mapped_column(String(32))
     title:Mapped[str|None]=mapped_column(Text)
@@ -19,7 +20,7 @@ class Bill(Base):
     sponsors=relationship("BillSponsor",back_populates="bill",cascade="all,delete-orphan")
     amendments=relationship("Amendment",back_populates="bill",cascade="all,delete-orphan")
     documents=relationship("LegislativeDocument",back_populates="bill",cascade="all,delete-orphan")
-    __table_args__=(UniqueConstraint("jurisdiction","congress","bill_type","bill_number"),)
+    __table_args__=(UniqueConstraint("jurisdiction","session_code","bill_type","bill_number"),)
 
 class BillVersion(Base):
     __tablename__="bill_versions"
@@ -76,7 +77,7 @@ class Amendment(Base):
     source_url:Mapped[str|None]=mapped_column(Text,nullable=True)
     raw_json:Mapped[dict]=mapped_column(JSON,default=dict)
     bill=relationship("Bill",back_populates="amendments")
-    __table_args__=(UniqueConstraint("congress","amendment_type","amendment_number"),)
+    __table_args__=(UniqueConstraint("bill_id","amendment_type","amendment_number"),)
 
 class Section(Base):
     __tablename__="sections"
