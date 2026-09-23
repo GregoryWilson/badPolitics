@@ -5,7 +5,21 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 import app.models.entities  # noqa: F401
 from app.models.entities import CivicDocument,CivicDocumentRevision
-from app.services.civic_analysis import analyze_civic_document
+from app.services.civic_analysis import analyze_civic_document,_extract_items,agenda_section_label
+
+def test_agenda_parser_does_not_treat_city_hall_address_as_an_item():
+    rows=_extract_items("""3815 Sachse Road, Building B
+Sachse, TX 75048
+Phone: 972.495.1212
+C. Consent Agenda
+C1. Consider approval of a street repair contract with Acme.
+D. Action Resulting from Executive Action
+D1. Consider adopting a zoning ordinance for Oak Street.
+1 Consider approval of the capital improvement plan.
+""")
+    assert [item["item_number"] for item in rows]==["C","C1","D","D1","1"]
+    assert agenda_section_label(rows[0]["item_number"],rows[0]["heading"])=="Consent Agenda"
+    assert agenda_section_label(rows[2]["item_number"],rows[2]["heading"])=="Action Resulting from Executive Action"
 
 def build_db(tmp_path):
     engine=create_engine("sqlite:///"+str(tmp_path/"civic.db"))

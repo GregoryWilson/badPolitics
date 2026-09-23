@@ -67,7 +67,9 @@ function renderWeeklyDashboard(){
   $("weeklyCategories").innerHTML=(result.categories||[]).length?(result.categories||[]).map(category=>
     '<section class="weekly-category">'+
       '<div class="weekly-category-header"><h3>'+esc(category.label)+'</h3><span class="badge">'+esc(category.count)+'</span></div>'+
-      category.items.map(item=>
+      groupWeeklyItems(category.items).map(group=>
+        (group.section?'<h4 class="weekly-section-header">'+esc(group.section)+'</h4>':'')+
+        group.items.map(item=>
         '<article class="weekly-item" data-weekly-kind="'+esc(item.kind)+'" data-weekly-id="'+esc(item.record_id)+'" data-weekly-agenda-id="'+esc(item.agenda_item_id??'')+'">'+
           '<div class="weekly-item-top"><strong>'+esc(item.title)+'</strong><span class="weekly-date">'+esc(item.date)+'</span></div>'+
           '<div class="meta"><span class="badge">'+esc(item.status)+'</span>'+
@@ -79,12 +81,24 @@ function renderWeeklyDashboard(){
             (safeUrl(item.source_url)?'<a class="source-link" target="_blank" rel="noreferrer" href="'+esc(safeUrl(item.source_url))+'">Official source</a>':'')+
           '</div>'+
         '</article>'
+        ).join("")
       ).join("")+
     '</section>'
   ).join(""):'<div class="notice">No source-backed activity for this institution has been captured for the current week yet.</div>';
   document.querySelectorAll(".weekly-item").forEach(card=>{
     card.querySelector(".weekly-open").onclick=()=>openWeeklyItem(card.dataset.weeklyKind,Number(card.dataset.weeklyId),card.dataset.weeklyAgendaId);
   });
+}
+function groupWeeklyItems(items){
+  const groups=[];
+  for(const item of items){
+    const section=item.agenda_section||"";
+    const key=item.date+"|"+section;
+    let group=groups.find(row=>row.key===key);
+    if(!group){group={key,section,items:[]};groups.push(group)}
+    group.items.push(item);
+  }
+  return groups;
 }
 async function openWeeklyItem(kind,id,agendaId=""){
   if(kind==="bill"){

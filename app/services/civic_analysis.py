@@ -11,8 +11,29 @@ from app.models.entities import (
 from app.services.graph import get_or_create_entity
 
 MONEY_RE=re.compile(r"(?<!\w)\$\s?\d[\d,]*(?:\.\d{1,2})?(?:\s?(?:million|billion|thousand|M|B|K))?",re.I)
-ITEM_RE=re.compile(r"^\s*(?:item\s+)?((?:[A-Z]\.)|(?:\d+(?:\.\d+)*[A-Z]?))[\s:.)-]+(.+)$",re.I)
+ITEM_RE=re.compile(r"^\s*(?:item\s+)?([A-Z]\d{1,3}|[A-Z]|\d+(?:\.\d+)*[A-Z]?)[.):]\s*(.+)$",re.I)
 ACTION_RE=re.compile(r"^\s*(consider|discuss|approve|adopt|authorize|award|public hearing|receive|review|vote|resolution)\b",re.I)
+BARE_NUMBERED_ACTION_RE=re.compile(
+    r"^\s*(\d{1,2})\s+((?:consider|discuss|approve|adopt|authorize|award|"
+    r"public hearing|receive|review|vote|resolution)\b.+)$",re.I,
+)
+SECTION_RE=re.compile(
+    r"(?:consent agenda|regular agenda|(?:public )?hearings?|(?:new|old|unfinished) business|"
+    r"(?:work|executive|closed) session|action resulting from executive (?:action|session)|"
+    r"(?:individual|general) consideration|(?:discussion|action|information) items?)",
+    re.I,
+)
+CITY_HALL_CONTACT_RE=re.compile(
+    r"(?:^3815\s*(?:-\s*b)?\s*sachse\s*(?:road|rd)\b|"
+    r"^sachse\s*(?:road|rd)\s*,?\s*building\s*b\b|"
+    r"^(?:contact us|hours|phone|fax|helpful links)\b)",re.I,
+)
+
+def agenda_section_label(item_number,heading):
+    if not re.fullmatch(r"[A-Z]\.?",(item_number or "").strip(),re.I):
+        return None
+    label=" ".join((heading or "").strip(" .:-").split())
+    return label if SECTION_RE.fullmatch(label) else None
 ORG_RE=re.compile(
     r"\b((?:[A-Z][A-Za-z0-9&.'/-]*\s+){0,7}[A-Z][A-Za-z0-9&.'/-]*\s+"
     r"(?:Inc\.?|LLC|L\.L\.C\.|LP|L\.P\.|LLP|Corp\.?|Corporation|Company|Co\.?|"
@@ -78,7 +99,12 @@ def _extract_items(text):
     lines=[line.strip() for line in (text or "").splitlines() if line.strip()]
     items=[]; current=None
     for line in lines:
-        m=ITEM_RE.match(line)
+        if CITY_HALL_CONTACT_RE.search(line):
+            if current:
+                items.append(current)
+                current=None
+            continue
+        m=ITEM_RE.match(line) or BARE_NUMBERED_ACTION_RE.match(line)
         action=ACTION_RE.match(line)
         if m or (action and len(line)<=1200):
             if current:
@@ -92,7 +118,8 @@ def _extract_items(text):
     if current:
         items.append(current)
     # Avoid treating navigation-heavy webpages as giant agendas.
-    return [x for x in items if len(" ".join(x["lines"]))>=20][:250]
+    return [x for x in items if agenda_section_label(x["item_number"],x["heading"])
+            or len(" ".join(x["lines"]))>=20][:250]
 
 def _evidence_excerpt(text,match,window=500):
     start=max(0,match.start()-window)
@@ -162,14 +189,17 @@ def analyze_civic_document(db,document_id):
         CivicAgendaItem.revision_id==revision.id,
     ).order_by(CivicAgendaItem.ordinal)).all()
     if not item_rows:
+        section=None
         for ordinal,item in enumerate(_extract_items(text),1):
+            section=agenda_section_label(item["item_number"],item["heading"]) or section
             item_text="\n".join(item["lines"])[:12000]
             digest=_hash(item["item_number"],item_text)
             row=CivicAgendaItem(
                 civic_document_id=doc.id,revision_id=revision.id,ordinal=ordinal,
                 item_number=item["item_number"],heading=item["heading"],
                 text=item_text,evidence_hash=digest,
-                metadata_json={"extraction_method":"deterministic_line_structure"},
+                metadata_json={"extraction_method":"deterministic_line_structure",
+                               "agenda_section":section},
             )
             db.add(row)
         db.flush()

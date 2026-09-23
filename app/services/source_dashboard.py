@@ -5,6 +5,7 @@ from datetime import datetime,timedelta,date
 from sqlalchemy import select
 
 from app.models.entities import Bill,BillAction,BillVersion,CivicDocument,CivicDocumentRevision,CivicFinding,CivicAgendaItem
+from app.services.civic_analysis import ACTION_RE,ITEM_RE,agenda_section_label
 from app.services.civic_sources import CIVIC_SOURCES
 
 SOURCE_GROUPS=[
@@ -77,6 +78,11 @@ SUBSTANTIVE_HINT=re.compile(
     r"policy|school|construction|property|project|hearing|election)\b",re.I,
 )
 SUBSTANTIVE_CATEGORIES=set(CATEGORY_LABELS)-{"other_civic","vote_action","public_hearing"}
+CONTACT_HEADING=re.compile(
+    r"^(?:contact us|hours|phone|fax|helpful links|meeting location|"
+    r"(?:\d{3,5}\s+)?sachse\s+(?:road|rd)(?:\s+building\s+b)?|"
+    r"sachse\s+(?:tx|texas)\s+75048)$",re.I,
+)
 
 def _normal(text):
     value=re.sub(r"^\s*(?:item\s+)?(?:\d+(?:\.\d+)*[a-z]?|[a-z])\s*[.): -]+", "",text or "",flags=re.I)
@@ -87,6 +93,31 @@ def _routine_agenda(heading):
     # of a consent item still merits display when it was extracted separately.
     subject=_normal(heading)
     return bool(ROUTINE_AGENDA.match(subject) and not SUBSTANTIVE_HINT.search(subject))
+
+def _contact_heading(heading,body):
+    subject=_normal(heading)
+    return bool(CONTACT_HEADING.fullmatch(subject) or
+                ("3815 sachse" in _normal(body) and
+                 subject in {"sachse road building b","sachse rd building b","3815"}))
+
+def _sections_in_text(text):
+    # Recover section names for agenda items analyzed before this feature was
+    # added. The headings are matched to the original revision, in source order.
+    sections=defaultdict(list)
+    current=None
+    for line in (text or "").splitlines():
+        line=line.strip()
+        match=ITEM_RE.match(line)
+        if match:
+            number,heading=match.groups()
+            current=agenda_section_label(number,heading) or current
+            if not agenda_section_label(number,heading):
+                sections[_normal(heading)].append(current)
+        elif agenda_section_label("A",line):
+            current=line
+        elif ACTION_RE.match(line):
+            sections[_normal(line)].append(current)
+    return sections
 
 def _issue_key(item):
     subject=_normal(item["title"])
@@ -111,8 +142,11 @@ def _dedupe_civic(items,limit):
         duplicate=None
         for existing in keys[bucket]:
             other=_issue_key(existing)
-            if subject==other or (min(len(subject),len(other))>=40 and
-                                  SequenceMatcher(None,subject,other).ratio()>=0.94):
+            same_body=(len(_normal(item["synopsis"]))>=60 and
+                       _normal(item["synopsis"])==_normal(existing["synopsis"]))
+            if (subject==other or same_body or
+                (min(len(subject),len(other))>=40 and
+                 SequenceMatcher(None,subject,other).ratio()>=0.94)):
                 duplicate=existing
                 break
         if duplicate is None:
@@ -231,14 +265,27 @@ def _civic_week(db,group,start,end,limit):
         ).all()
 
         if agenda:
+            section=None
+            legacy_sections=_sections_in_text(revision.text if revision else doc.text)
             for agenda_item in agenda:
                 item_title=agenda_item.heading or _compact(agenda_item.text,180) or doc.title
-                if _routine_agenda(item_title):
+                header=agenda_section_label(agenda_item.item_number,item_title)
+                if header:
+                    section=header
+                    continue
+                matched_sections=legacy_sections.get(_normal(item_title),[])
+                if matched_sections:
+                    section=matched_sections.pop(0) or section
+                section=(agenda_item.metadata_json or {}).get("agenda_section") or section
+                if (_contact_heading(item_title,agenda_item.text) or
+                    _routine_agenda(item_title)):
                     continue
                 linked=[f for f in findings if f.agenda_item_id==agenda_item.id]
                 category=_civic_category(doc,linked)
                 # A stray numbered line from a scraped page is not an agenda issue.
-                if category=="other_civic" and len(_normal(agenda_item.text))<35:
+                if (category=="other_civic" and
+                    (len(_normal(agenda_item.text))<35 or
+                     not (ACTION_RE.match(item_title) or SUBSTANTIVE_HINT.search(item_title)))):
                     continue
                 action=any(f.category=="vote_action" for f in linked)
                 hearing=any(f.category=="public_hearing" for f in linked)
@@ -254,6 +301,7 @@ def _civic_week(db,group,start,end,limit):
                     "category_label":CATEGORY_LABELS[category],
                     "title":item_title,
                     "parent_title":doc.title,
+                    "agenda_section":section,
                     "date":event_date.isoformat(),
                     "date_basis":date_basis,
                     "status":status,
@@ -267,7 +315,7 @@ def _civic_week(db,group,start,end,limit):
             category=_civic_category(doc,findings)
             # An unparsed packet/agenda is a container, not a second issue.
             if (category not in SUBSTANTIVE_CATEGORIES or
-                _routine_agenda(doc.title) or
+                _routine_agenda(doc.title) or _contact_heading(doc.title,doc.text or "") or
                 (doc.document_type in {"agenda","minutes","meeting_packet"} and
                  len(_normal(doc.title))<45)):
                 continue

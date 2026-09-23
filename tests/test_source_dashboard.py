@@ -198,6 +198,63 @@ def test_legislative_week_ignores_admin_action_but_keeps_substantive_action(tmp_
     finally:
         engine.dispose()
 
+def test_sachse_legacy_agenda_shows_issues_under_sections_without_contact_or_procedure(tmp_path):
+    engine=build_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            source_text="""3815 Sachse Road, Building B
+Sachse Road, Building B
+City Hall Phone: 972.495.1212
+A. Call to Order
+B. Public Comments
+C. Consent Agenda
+C1. Consider approval of a street repair contract with Acme.
+D. Action Resulting from Executive Action
+D1. Consider adopting a zoning ordinance for Oak Street.
+E. Adjournment"""
+            doc=CivicDocument(source_key="sachse_current_meetings",jurisdiction="TX-local",
+                governing_body="City of Sachse",document_type="agenda",
+                title="City Council Meeting - Agenda",meeting_date="2026-09-22",
+                source_url="https://example.test/sachse",external_id="agenda-2026-09-22",
+                text=source_text,sha256="sachse",metadata_json={},
+                first_seen_at=datetime(2026,9,22),last_seen_at=datetime(2026,9,22))
+            db.add(doc);db.flush()
+            rev=CivicDocumentRevision(civic_document_id=doc.id,sha256="sachse",
+                text=source_text,metadata_json={},observed_at=datetime(2026,9,22))
+            db.add(rev);db.flush()
+            headings=[
+                ("3815","Sachse Road, Building B", "3815 Sachse Road, Building B",None),
+                ("3815","Sachse Road", "3815 Sachse Road, Sachse, TX 75048",None),
+                ("A","Call to Order", "A. Call to Order",None),
+                ("B","Public Comments", "B. Public Comments",None),
+                ("C1","Consider approval of a street repair contract with Acme",
+                 "Consider approval of a street repair contract with Acme.","procurement_contract"),
+                ("D","Action Resulting from Executive Action",
+                 "D. Action Resulting from Executive Action",None),
+                ("D1","Consider adopting a zoning ordinance for Oak Street",
+                 "Consider adopting a zoning ordinance for Oak Street.","zoning_development"),
+                ("E","Adjournment", "E. Adjournment",None),
+            ]
+            for ordinal,(number,heading,body,signal) in enumerate(headings,1):
+                item=CivicAgendaItem(civic_document_id=doc.id,revision_id=rev.id,
+                    ordinal=ordinal,item_number=number,heading=heading,text=body,
+                    evidence_hash=str(ordinal),metadata_json={})
+                db.add(item);db.flush()
+                if signal:
+                    db.add(CivicFinding(civic_document_id=doc.id,revision_id=rev.id,
+                        agenda_item_id=item.id,category=signal,statement=signal,
+                        evidence=body,confidence=1.0,evidence_hash=f"f{ordinal}",metadata_json={}))
+            db.commit()
+            result=weekly_source_summary(db,"sachse",today=date(2026,9,23))
+
+        items=[item for group in result["categories"] for item in group["items"]]
+        assert result["item_count"]==2
+        assert {item["agenda_section"] for item in items}=={
+            "Consent Agenda","Action Resulting from Executive Action"}
+        assert all("Sachse Road" not in item["title"] for item in items)
+    finally:
+        engine.dispose()
+
 def test_arcgis_feature_needs_change_this_week_not_just_a_recrawl(tmp_path):
     engine=build_db(tmp_path)
     try:
