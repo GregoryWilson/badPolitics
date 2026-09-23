@@ -9,6 +9,7 @@ from app.services.monitor import BILL_TYPES
 from app.jurisdictions import get_adapter
 from app.services.civic_crawler import scan_civic_source
 from app.services.civic_sources import CIVIC_SOURCES
+from app.services.civic_analysis import analyze_changed_civic_documents
 
 def _cursor(db,source_key,jurisdiction,session=None):
     row=db.scalar(select(DiscoveryCursor).where(DiscoveryCursor.source_key==source_key))
@@ -150,9 +151,21 @@ def discover_civic_source(db,source_key,limit=None):
     cursor.status="running"; cursor.last_started_at=datetime.utcnow(); cursor.updated_at=cursor.last_started_at
     db.commit()
     try:
-        result=scan_civic_source(db,source_key,limit or settings.auto_discovery_batch_size)
+        analysis_limit=max(int(limit or settings.auto_discovery_batch_size),50)
+        result=scan_civic_source(db,source_key,analysis_limit)
+        backfill_ids=db.scalars(
+            select(CivicDocument.id)
+            .where(CivicDocument.source_key==source_key)
+            .order_by(CivicDocument.last_seen_at.desc(),CivicDocument.id.desc())
+            .limit(analysis_limit)
+        ).all()
+        analysis_ids=sorted(set(result.get("changed_document_ids",[]))|set(backfill_ids))
+        analyses=analyze_changed_civic_documents(db,analysis_ids)
         result={
             **result,
+            "analysis_results":analyses,
+            "analysis_completed_count":sum(1 for row in analyses if row.get("status")=="completed"),
+            "analysis_failed_count":sum(1 for row in analyses if row.get("status")=="failed"),
             "source_key":f"civic:{source_key}",
             "jurisdiction":source["jurisdiction"],
             "governing_body":source["governing_body"],

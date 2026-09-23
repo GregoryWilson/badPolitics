@@ -421,3 +421,56 @@ class CivicDocumentRevision(Base):
         UniqueConstraint("civic_document_id","sha256"),
         Index("ix_civic_revisions_document_observed","civic_document_id","observed_at"),
     )
+
+
+class CivicAgendaItem(Base):
+    __tablename__="civic_agenda_items"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    civic_document_id:Mapped[int]=mapped_column(ForeignKey("civic_documents.id",ondelete="CASCADE"))
+    revision_id:Mapped[int|None]=mapped_column(ForeignKey("civic_document_revisions.id",ondelete="CASCADE"),nullable=True)
+    ordinal:Mapped[int]=mapped_column(Integer)
+    item_number:Mapped[str|None]=mapped_column(String(64),nullable=True)
+    heading:Mapped[str|None]=mapped_column(Text,nullable=True)
+    text:Mapped[str]=mapped_column(Text)
+    evidence_hash:Mapped[str]=mapped_column(String(64))
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(
+        UniqueConstraint("civic_document_id","revision_id","evidence_hash"),
+        Index("ix_civic_agenda_document_ordinal","civic_document_id","ordinal"),
+    )
+
+class CivicFinding(Base):
+    __tablename__="civic_findings"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    civic_document_id:Mapped[int]=mapped_column(ForeignKey("civic_documents.id",ondelete="CASCADE"))
+    revision_id:Mapped[int|None]=mapped_column(ForeignKey("civic_document_revisions.id",ondelete="CASCADE"),nullable=True)
+    agenda_item_id:Mapped[int|None]=mapped_column(ForeignKey("civic_agenda_items.id",ondelete="CASCADE"),nullable=True)
+    category:Mapped[str]=mapped_column(String(64))
+    statement:Mapped[str]=mapped_column(Text)
+    evidence:Mapped[str]=mapped_column(Text)
+    confidence:Mapped[float]=mapped_column(Float,default=1.0)
+    evidence_hash:Mapped[str]=mapped_column(String(64))
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(
+        UniqueConstraint("civic_document_id","revision_id","agenda_item_id","category","evidence_hash"),
+        Index("ix_civic_findings_document_category","civic_document_id","category"),
+    )
+
+class CivicEntityLink(Base):
+    __tablename__="civic_entity_links"
+    id:Mapped[int]=mapped_column(primary_key=True)
+    civic_document_id:Mapped[int]=mapped_column(ForeignKey("civic_documents.id",ondelete="CASCADE"))
+    revision_id:Mapped[int|None]=mapped_column(ForeignKey("civic_document_revisions.id",ondelete="CASCADE"),nullable=True)
+    agenda_item_id:Mapped[int|None]=mapped_column(ForeignKey("civic_agenda_items.id",ondelete="CASCADE"),nullable=True)
+    entity_id:Mapped[int]=mapped_column(ForeignKey("evidence_entities.id",ondelete="CASCADE"))
+    link_type:Mapped[str]=mapped_column(String(64))
+    evidence:Mapped[str]=mapped_column(Text)
+    confidence:Mapped[float]=mapped_column(Float,default=1.0)
+    metadata_json:Mapped[dict]=mapped_column(JSON,default=dict)
+    created_at:Mapped[datetime]=mapped_column(DateTime,default=datetime.utcnow)
+    __table_args__=(
+        UniqueConstraint("civic_document_id","revision_id","agenda_item_id","entity_id","link_type"),
+        Index("ix_civic_entity_document","civic_document_id","entity_id"),
+    )
