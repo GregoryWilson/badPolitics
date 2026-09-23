@@ -14,7 +14,7 @@ class Settings(BaseSettings):
     watch_poll_minutes: int = 0
     texas_ftp_host: str = "ftp.legis.state.tx.us"
     auto_discovery_enabled: bool = True
-    auto_discovery_minutes: int = 60
+    auto_discovery_minutes: int = 10
     auto_discovery_batch_size: int = 50
     auto_discovery_us_congress: int = 119
     auto_discovery_tx_sessions: str = "89R"
