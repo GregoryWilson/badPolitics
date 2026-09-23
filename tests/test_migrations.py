@@ -19,8 +19,8 @@ def explicit_model_indexes():
 def test_fresh_database_upgrades_to_head(tmp_path):
     url=sqlite_url(tmp_path/"fresh.db")
     upgrade(url)
-    assert current_revision(url)==head_revision(url)=="0002"
-    assert assert_schema_current(url)=="0002"
+    assert current_revision(url)==head_revision(url)=="0003"
+    assert assert_schema_current(url)=="0003"
 
     engine=create_engine(url)
     try:
@@ -53,7 +53,7 @@ def test_legacy_create_all_schema_can_be_adopted(tmp_path):
     assert current_revision(url) is None
     result=adopt_legacy(url)
     assert result["baseline_revision"]=="0001"
-    assert result["current_revision"]=="0002"
+    assert result["current_revision"]=="0003"
     assert result["table_count"] < len(Base.metadata.tables)
     assert assert_schema_current(url)=="0002"
 
