@@ -93,3 +93,14 @@ def test_dashboard_supports_investigation_queue_and_triage():
     assert '/investigation-queue/summary' in js
     assert '/queue/sync?limit=50&prepare=false' in js
     assert "analyst workflow metadata" in js.lower()
+
+
+def test_dashboard_supports_automatic_discovery_and_civic_records():
+    html=(ROOT/"app/static/index.html").read_text()
+    js=(ROOT/"app/static/app.js").read_text()
+    assert 'id="runDiscovery"' in html
+    assert 'id="discoveryStatus"' in html
+    assert 'id="civicList"' in html
+    assert 'api("/discovery/status")' in js
+    assert 'api("/civic-documents?limit=25")' in js
+    assert 'api("/discovery/run"' in js
