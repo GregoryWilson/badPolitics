@@ -304,7 +304,7 @@ def analyze_changed_civic_documents(db,document_ids):
     results=[]
     for document_id in sorted(set(document_ids or [])):
         try:
-            results.append({"document_id":document_id,"status":"completed","analysis":analyze_civic_document(db,document_id)})
+            results.append({"document_id":document_id,"status":"completed","analysis":ensure_civic_analysis(db,document_id)})
         except Exception as exc:
             db.rollback()
             results.append({"document_id":document_id,"status":"failed","error":str(exc)})
