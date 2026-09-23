@@ -59,15 +59,50 @@ function renderDiscovery(){
       '</div>'
   ).join(""):'<div class="notice">No civic records captured yet.</div>';
 }
+let discoveryPollTimer=null;
+async function pollDiscoveryUntilIdle(){
+  if(discoveryPollTimer)clearInterval(discoveryPollTimer);
+  const tick=async()=>{
+    try{
+      const runtime=await api("/discovery/runtime");
+      await Promise.all([loadDiscoveryData(),loadBills()]);
+      if(runtime.running){
+        status("Discovery is running… progress updates every 2 seconds.");
+        $("runDiscovery").disabled=true;
+      }else{
+        if(discoveryPollTimer)clearInterval(discoveryPollTimer);
+        discoveryPollTimer=null;
+        $("runDiscovery").disabled=false;
+        status("Discovery batch completed.","success");
+      }
+    }catch(e){
+      if(discoveryPollTimer)clearInterval(discoveryPollTimer);
+      discoveryPollTimer=null;
+      $("runDiscovery").disabled=false;
+      status("Unable to poll discovery status: "+e.message,"error");
+    }
+  };
+  await tick();
+  if(!discoveryPollTimer){
+    const runtime=await api("/discovery/runtime").catch(()=>({running:false}));
+    if(runtime.running)discoveryPollTimer=setInterval(tick,2000);
+  }
+}
 async function runDiscovery(){
   $("runDiscovery").disabled=true;
-  status("Running discovery batch…");
+  status("Starting discovery…");
   try{
-    await api("/discovery/run",{method:"POST"});
-    await Promise.all([loadBills(),loadDiscoveryData()]);
-    status("Discovery batch completed.","success");
-  }catch(e){status("Discovery failed: "+e.message,"error")}
-  finally{$("runDiscovery").disabled=false}
+    const result=await api("/discovery/run",{method:"POST"});
+    if(result.status==="already_running"){
+      status("Discovery is already running. Showing live progress.");
+    }else{
+      status("Discovery started. Showing live progress.");
+    }
+    await pollDiscoveryUntilIdle();
+  }catch(e){
+    status("Discovery failed to start: "+e.message,"error");
+    $("runDiscovery").disabled=false;
+  }
 }
 
 async function loadQueueData(){
