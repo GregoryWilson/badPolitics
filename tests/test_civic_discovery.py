@@ -30,6 +30,7 @@ def test_wylie_and_county_sources_are_registered():
     assert sources["wylie_isd_board"]["kind"]=="boardbook"
     assert sources["wylie_isd_board"]["organization_id"]=="3480"
     assert "wylie_development_projects" in sources
+    assert sources["wylie_city_council"]["kind"]=="wylie_municode"
     assert "collin_commissioners" in sources
     assert sources["collin_commissioners"]["kind"]=="collin_eagenda"
     assert "dallas_commissioners_notices" in sources
@@ -63,6 +64,73 @@ def test_collin_eagenda_yields_dated_agenda_items(tmp_path,monkeypatch):
     finally:
         engine.dispose()
 
+def test_wylie_council_agenda_yields_substantive_items_without_meeting_minutes(tmp_path,monkeypatch):
+    meeting=date.today()
+    listing=f'''<tr><td data-th="Date">{meeting:%m/%d/%Y} - 6:00pm</td>
+        <td data-th="Agenda"><a href="https://meetings.municode.com/adaHtmlDocument/index?cc=WYLIETX&amp;me=abc123&amp;ip=False">HTML Agenda</a></td></tr>'''
+    agenda=f'''<title>City Council Regular Meeting {meeting:%m/%d/%Y}</title>
+      <section class="agenda-section"><h2 class="section-header">CONSENT AGENDA</h2>
+      <li>A. Consider approval of the Regular City Council Meeting minutes.</li>
+      <li>B. Consider approving a road construction contract for Oak Street.</li></section>
+      <section class="agenda-section"><h2 class="section-header">REGULAR AGENDA</h2>
+      <li>1. Consider adopting a zoning ordinance for Elm Street.</li></section>'''
+    original_client=httpx.Client
+    def handle(request):
+        return httpx.Response(200,text=agenda if request.url.host=="meetings.municode.com" else listing)
+    monkeypatch.setattr("app.services.civic_crawler.httpx.Client",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(handle),**kwargs))
+    engine=_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            result=scan_civic_source(db,"wylie_city_council",limit=5)
+            assert result["error_count"]==0
+            assert result["document_count"]==1
+            doc=db.get(CivicDocument,result["changed_document_ids"][0])
+            assert doc.meeting_date==meeting.isoformat()
+            ensure_civic_analysis(db,doc.id)
+            summary=weekly_source_summary(db,"wylie",today=meeting)
+            items=[item for category in summary["categories"] for item in category["items"]]
+            assert len(items)==2
+            assert {item["agenda_section"] for item in items}=={"Consent Agenda","Regular Agenda"}
+            assert all("minutes" not in item["title"].casefold() for item in items)
+            assert {item["category"] for item in items}=={"procurement_contract","zoning_development"}
+    finally:
+        engine.dispose()
+
+def test_boardbook_scan_fetches_recent_agendas_and_preserves_minutes(tmp_path,monkeypatch):
+    meeting=date.today()
+    listing=f'''<tr class="row-for-board">{meeting:%B %d, %Y} at 5:00 PM - Regular Meeting
+      Meeting Type: Regular <a href="/Public/Agenda/1084?meeting=77">Agenda</a>
+      <a href="/Public/Minutes/1084?meeting=77">Minutes</a></tr>
+      <tr class="row-for-board">September 22, 2020 at 5:00 PM - Regular Meeting
+      Meeting Type: Regular <a href="/Public/Agenda/1084?meeting=old">Agenda</a></tr>'''
+    agenda=f'''<title>Public Meeting Agenda: {meeting:%B %d, %Y}</title>
+       <tr class="agenda-item-information"><td><input class="hasChildren" value="true" />
+       <div class="form-check">VI. Consent Agenda - Consider approval of</div></td></tr>
+       <tr class="agenda-item-information"><td><div class="form-check">VI.A. Consider adopting a bond resolution for campus construction</div></td></tr>'''
+    requested=[]
+    original_client=httpx.Client
+    def handle(request):
+        requested.append(str(request.url))
+        if request.url.path.startswith("/Public/Minutes/"):
+            return httpx.Response(200,text=f"<title>Minutes for {meeting:%B %d, %Y}</title><p>Meeting minutes.</p>")
+        return httpx.Response(200,text=agenda if request.url.params.get("meeting")=="77" else listing)
+    monkeypatch.setattr("app.services.civic_crawler.httpx.Client",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(handle),**kwargs))
+    engine=_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            result=scan_civic_source(db,"gisd_board",limit=5)
+            assert result["document_count"]==2
+            assert len(requested)==3
+            doc=db.get(CivicDocument,result["changed_document_ids"][0])
+            ensure_civic_analysis(db,doc.id)
+            summary=weekly_source_summary(db,"gisd",today=meeting)
+            assert summary["item_count"]==1
+            assert summary["categories"][0]["items"][0]["agenda_section"]=="Consent Agenda"
+    finally:
+        engine.dispose()
+
 def test_boardbook_roman_items_keep_sections_and_drop_attachment_clutter():
     soup=BeautifulSoup('''<title>Public Meeting Agenda: September 22, 2026</title>
       <tr class="agenda-item-information"><td><div class="form-check">VI. Consent Agenda - Consider approval of</div></td></tr>
@@ -90,6 +158,40 @@ def test_dallas_county_sources_are_registered_and_high_priority():
     assert sources["dallas_commissioners_notices"]["priority"]=="high"
     assert sources["dallas_commissioners_notices"]["kind"]=="dallas_notices"
     assert sources["dallas_budget"]["priority"]=="high"
+    assert sources["dallas_election_board_notices"]["kind"]=="dallas_election_board"
+
+def test_dallas_election_board_uses_meeting_date_and_excludes_attached_address_list(tmp_path,monkeypatch):
+    meeting=date.today()
+    listing=f'''<tr><td><a href="/Assets/uploads/docs/election-board-agenda.pdf">Dallas County Election Board Meeting Agenda</a></td>
+       <td>09/22/2026</td><td>{meeting:%m/%d/%Y}</td></tr>'''
+    original_client=httpx.Client
+    monkeypatch.setattr("app.services.civic_crawler.httpx.Client",
+        lambda **kwargs: original_client(transport=httpx.MockTransport(
+            lambda request:httpx.Response(200,text=listing)),**kwargs))
+    pdf_text='''III. Topics for Discussion
+       • Appointment of a Presiding Judge for the November general election.
+       • Approval of procurement of election supplies for November.
+       IV. General Public Comments
+       DALLAS COUNTY ELECTION BOARD MEMBERS
+       Name Address City Zip Status
+       Jane Example 123 Main Street Dallas 75201'''
+    monkeypatch.setattr("app.services.civic_crawler._fetch_text",
+        lambda client,url:(pdf_text,url,"pdf"))
+    engine=_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            result=scan_civic_source(db,"dallas_election_board_notices",limit=5)
+            assert result["document_count"]==1
+            doc=db.get(CivicDocument,result["changed_document_ids"][0])
+            assert doc.meeting_date==meeting.isoformat()
+            assert "123 Main Street" not in doc.text
+            ensure_civic_analysis(db,doc.id)
+            summary=weekly_source_summary(db,"dallas_county",today=meeting)
+            assert summary["item_count"]==2
+            assert all("Address" not in row["synopsis"] for category in summary["categories"]
+                       for row in category["items"])
+    finally:
+        engine.dispose()
 
 def test_civic_date_extraction_handles_meeting_formats():
     assert _extract_date("Regular meeting September 22, 2026")=="2026-09-22"

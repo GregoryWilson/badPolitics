@@ -104,6 +104,14 @@ CIVIC_SOURCES=[
         "priority":"high",
     },
     {
+        "source_key":"dallas_election_board_notices",
+        "jurisdiction":"TX-local",
+        "governing_body":"Dallas County Election Board",
+        "kind":"dallas_election_board",
+        "root_url":"https://www.dallascounty.org/government/county-clerk/administration/official-and-legal-notices.php",
+        "priority":"high",
+    },
+    {
         "source_key":"dallas_budget",
         "jurisdiction":"TX-local",
         "governing_body":"Dallas County Office of Budget and Evaluation",
@@ -120,6 +128,14 @@ CIVIC_SOURCES=[
         "kind":"collin_eagenda",
         "root_url":"https://eagenda.collincountytx.gov/agenda_publish.cfm",
         "priority":"normal",
+    },
+    {
+        "source_key":"wylie_city_council",
+        "jurisdiction":"TX-local",
+        "governing_body":"City of Wylie City Council",
+        "kind":"wylie_municode",
+        "root_url":"https://wylie-tx.municodemeetings.com/mm/bc-citycouncil",
+        "priority":"high",
     },
     {
         "source_key":"wylie_development_projects",

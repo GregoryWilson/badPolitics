@@ -4,13 +4,13 @@ from collections import defaultdict
 from datetime import datetime,timedelta,date,timezone
 from sqlalchemy import select,func
 
-from app.models.entities import Bill,BillAction,BillVersion,CivicDocument,CivicDocumentRevision,CivicFinding,CivicAgendaItem
+from app.models.entities import Bill,BillAction,BillVersion,CivicDocument,CivicDocumentRevision,CivicFinding,CivicAgendaItem,DiscoveryCursor
 from app.services.civic_analysis import ACTION_RE,ITEM_RE,COMPILED_SIGNALS,agenda_section_label
 from app.services.civic_sources import CIVIC_SOURCES
 
 SOURCE_GROUPS=[
     {"id":"sachse","label":"Sachse","kind":"civic","prefixes":["sachse_"]},
-    {"id":"wylie","label":"Wylie","kind":"civic","source_keys":["wylie_development_projects"]},
+    {"id":"wylie","label":"Wylie","kind":"civic","prefixes":["wylie_city_"],"source_keys":["wylie_development_projects"]},
     {"id":"wylie_isd","label":"Wylie ISD","kind":"civic","source_keys":["wylie_isd_board"]},
     {"id":"gisd","label":"Garland ISD","kind":"civic","prefixes":["gisd_"]},
     {"id":"dallas_county","label":"Dallas County","kind":"civic","prefixes":["dallas_"]},
@@ -92,7 +92,9 @@ def _routine_agenda(heading):
     # Match the heading, not the entire item: a specific contract in the body
     # of a consent item still merits display when it was extracted separately.
     subject=_normal(heading)
-    return bool(ROUTINE_AGENDA.match(subject) and not SUBSTANTIVE_HINT.search(subject))
+    minutes=bool(re.search(r"\b(?:approve|approval of)\b.{0,110}\bminutes\b",subject))
+    return bool((ROUTINE_AGENDA.match(subject) or minutes) and
+                not SUBSTANTIVE_HINT.search(subject))
 
 def _contact_heading(heading,body):
     subject=_normal(heading)
@@ -250,13 +252,24 @@ def _source_coverage(db,group,start,end):
             func.count(CivicDocument.id),func.max(CivicDocument.last_seen_at),
             func.max(CivicDocument.meeting_date),
         ).where(CivicDocument.source_key.in_(keys))).one()
+        cursors=db.scalars(select(DiscoveryCursor).where(
+            DiscoveryCursor.source_key.in_([f"civic:{key}" for key in keys]))).all()
     else:
         count,last_seen=db.execute(select(func.count(Bill.id),func.max(Bill.updated_at))
             .where(Bill.jurisdiction==group["jurisdiction"])).one()
         last_dated=db.scalar(select(func.max(BillAction.action_date)).join(Bill)
             .where(Bill.jurisdiction==group["jurisdiction"]))
+        cursors=db.scalars(select(DiscoveryCursor).where(
+            DiscoveryCursor.source_key.like(f"legis:{group['jurisdiction']}:%"))).all()
+    discovery=[{
+        "source_key":row.source_key,"status":row.status,
+        "last_completed_at":row.last_completed_at.isoformat() if row.last_completed_at else None,
+        "error_count":sum(int((row.cursor_json or {}).get("last_result",{}).get(name,0) or 0)
+                          for name in ("error_count","failed_count","analysis_failed_count")),
+    } for row in cursors]
     return {"record_count":count,"last_captured_at":last_seen.isoformat() if last_seen else None,
-            "latest_dated_record":str(last_dated)[:10] if last_dated else None}
+            "latest_dated_record":str(last_dated)[:10] if last_dated else None,
+            "discovery":discovery}
 
 def _civic_week(db,group,start,end,limit):
     keys=_civic_keys(group)

@@ -102,6 +102,11 @@ def _boardbook_agenda_text(soup):
         title=row.select_one(".form-check")
         if title:
             value=" ".join(title.get_text(" ",strip=True).split())
+            if row.select_one('input.hasChildren[value="true"]') and not re.search(
+                r"\b(?:consent agenda|regular agenda|public hearing|action items?|work session)\b",
+                value,re.I,
+            ):
+                continue
             if value:
                 headings.append(value)
     if not headings:
@@ -172,36 +177,126 @@ def _scan_seeded_pages(db,source,seeds,limit=50,follow_selector=None):
 
 def scan_boardbook_source(db,source,limit=50):
     org=str(source["organization_id"])
-    def follow(soup,base,depth):
-        if depth>=2:
-            return []
-        rows=[]
-        for a in soup.find_all("a",href=True):
-            href=urljoin(base,a["href"])
-            path=urlparse(href).path.casefold()
-            text=a.get_text(" ",strip=True)
-            if (
-                f"/public/agenda/{org}" in path
-                or f"/public/minutes/{org}" in path
-                or f"/public/notice/{org}" in path
-            ):
-                rows.append((href,text or "BoardBook record",depth+1))
-            elif depth>0 and (
-                "attachment" in path
-                or "/public/itemdownload" in path
-                or "/public/download" in path
-            ):
-                rows.append((href,text or "BoardBook attachment",depth+1))
-        # Preserve source ordering but deduplicate URLs.
-        out=[]; seen=set()
-        for row in rows:
-            if row[0] not in seen:
-                seen.add(row[0]); out.append(row)
-        return out[:max(limit*3,100)]
-    return _scan_seeded_pages(
-        db,source,[(source["root_url"],source["governing_body"],0)],
-        limit=max(limit,75),follow_selector=follow,
-    )
+    today=date.today()
+    documents=[];changed_ids=[];errors=[];meetings=[]
+    root_reached=False
+    with httpx.Client(timeout=30,follow_redirects=True) as client:
+        try:
+            response=client.get(source["root_url"])
+            response.raise_for_status()
+            root_reached=True
+            soup=BeautifulSoup(response.text,"lxml")
+            for row in soup.select("tr.row-for-board"):
+                meeting=_extract_date(row.get_text(" ",strip=True).split("Meeting Type:")[0])
+                day=_parse_civic_day(meeting)
+                if day and today-timedelta(days=45)<=day<=today+timedelta(days=30):
+                    for kind in ("Agenda","Minutes","Notice"):
+                        link=row.select_one(f'a[href*="/Public/{kind}/{org}"]')
+                        if link:
+                            meetings.append((day,urljoin(source["root_url"],link["href"]),kind))
+        except Exception as exc:
+            errors.append({"url":source["root_url"],"error":str(exc)})
+        priority={"Agenda":0,"Minutes":1,"Notice":2}
+        for day,url,kind in sorted(set(meetings),
+                key=lambda item:(item[0],-priority[item[2]]),reverse=True)[:limit]:
+            try:
+                response=client.get(url)
+                response.raise_for_status()
+                soup=BeautifulSoup(response.text,"lxml")
+                title=_candidate_title(soup,f"Board meeting agenda - {day.isoformat()}")
+                text=(_boardbook_agenda_text(soup) if kind=="Agenda"
+                      else _clean_text(response.text)[:1_500_000])
+                if not text:
+                    continue
+                doc,changed=_upsert(db,source,title,url,text,
+                    metadata={"format":"structured_agenda" if kind=="Agenda" else "html",
+                              "source_kind":"boardbook",
+                              "meeting_date":day.isoformat()})
+                doc.meeting_date=day.isoformat()
+                documents.append(doc.id)
+                if changed:
+                    changed_ids.append(doc.id)
+            except Exception as exc:
+                errors.append({"url":url,"error":str(exc)})
+    db.commit()
+    return {"source_key":source["source_key"],"root_reached":root_reached,
+            "records_enumerated":len(meetings),"document_count":len(documents),
+            "changed_document_ids":changed_ids,"error_count":len(errors),"errors":errors[:20]}
+
+def _parse_civic_day(value):
+    try:
+        return date.fromisoformat(value) if value else None
+    except ValueError:
+        return None
+
+def _wylie_municode_agenda_text(soup):
+    lines=[_candidate_title(soup,"City Council agenda")]
+    section_index=0
+    item_index=0
+    for section in soup.select("section.agenda-section"):
+        header=section.select_one("h2.section-header")
+        heading=" ".join(header.get_text(" ",strip=True).split()) if header else ""
+        label=next((name for name in ("Consent Agenda","Regular Agenda","Work Session",
+                                      "Public Hearing","Action Items")
+                    if heading.casefold().startswith(name.casefold())),None)
+        if label:
+            section_index+=1
+            lines.append(f"{chr(64+section_index)}. {label}")
+        for item in section.select("li"):
+            text=" ".join(item.get_text(" ",strip=True).split())
+            text=re.sub(r"^(?:[A-Z]{1,3}\d*|\d+)\.\s*","",text,flags=re.I)
+            if text:
+                item_index+=1
+                lines.append(f"{item_index}. {text}")
+    return "\n".join(lines) if item_index else None
+
+def scan_wylie_municode_source(db,source,limit=50):
+    today=date.today()
+    documents=[];changed_ids=[];errors=[];meetings=[]
+    root_reached=False
+    with httpx.Client(timeout=30,follow_redirects=True) as client:
+        try:
+            response=client.get(source["root_url"])
+            response.raise_for_status()
+            root_reached=True
+            soup=BeautifulSoup(response.text,"lxml")
+            for row in soup.select("tr"):
+                date_cell=row.select_one('td[data-th="Date"]')
+                if not date_cell:
+                    continue
+                meeting=_parse_civic_day(_extract_date(date_cell.get_text(" ",strip=True)))
+                if not meeting or not today-timedelta(days=45)<=meeting<=today+timedelta(days=30):
+                    continue
+                agenda=row.select_one('td[data-th="Agenda"] a[href*="adaHtmlDocument/index"]')
+                if agenda:
+                    url=urljoin(source["root_url"],agenda["href"])
+                    if urlparse(url).hostname=="meetings.municode.com":
+                        meetings.append((meeting,url))
+        except Exception as exc:
+            errors.append({"url":source["root_url"],"error":str(exc)})
+        for day,url in sorted(set(meetings),reverse=True)[:limit]:
+            try:
+                response=client.get(url)
+                response.raise_for_status()
+                soup=BeautifulSoup(response.text,"lxml")
+                text=_wylie_municode_agenda_text(soup)
+                if not text:
+                    continue
+                title=_candidate_title(soup,f"City Council agenda - {day.isoformat()}")
+                meeting_id=(parse_qs(urlparse(url).query).get("me") or [url])[0]
+                doc,changed=_upsert(db,source,title,url,text,
+                    metadata={"format":"structured_agenda","source_kind":"wylie_municode",
+                              "meeting_date":day.isoformat()},external_id=f"agenda:{meeting_id}")
+                doc.meeting_date=day.isoformat()
+                documents.append(doc.id)
+                if changed:
+                    changed_ids.append(doc.id)
+            except Exception as exc:
+                errors.append({"url":url,"error":str(exc)})
+    db.commit()
+    return {"source_key":source["source_key"],"root_reached":root_reached,
+            "records_enumerated":len(meetings),"document_count":len(documents),
+            "changed_document_ids":changed_ids,"error_count":len(errors),"errors":errors[:20]}
 
 def scan_civicengage_archive(db,source,limit=50):
     def follow(soup,base,depth):
@@ -255,6 +350,73 @@ def scan_dallas_notices(db,source,limit=50):
         db,source,[(source["root_url"],source["governing_body"],0)],
         limit=max(limit,75),follow_selector=follow,
     )
+
+def _dallas_election_agenda_text(text):
+    match=re.search(r"III\.\s*Topics for Discussion\b(.*?)(?=\n\s*IV\.|\Z)",text or "",re.I|re.S)
+    if not match:
+        return None
+    topics=[];current=None
+    for line in match.group(1).splitlines():
+        line=line.strip()
+        if line.startswith("•"):
+            if current:
+                topics.append(current)
+            current=line.lstrip("• ").strip()
+        elif line and current:
+            current+=" "+line
+    if current:
+        topics.append(current)
+    if not topics:
+        return None
+    return "\n".join(["Dallas County Election Board Agenda","A. Election Board Business",
+                       *(f"{i}. {' '.join(topic.split())}" for i,topic in enumerate(topics,1))])
+
+def scan_dallas_election_board(db,source,limit=50):
+    today=date.today()
+    meetings={};documents=[];changed_ids=[];errors=[];root_reached=False
+    with httpx.Client(timeout=30,follow_redirects=True) as client:
+        try:
+            response=client.get(source["root_url"])
+            response.raise_for_status()
+            root_reached=True
+            soup=BeautifulSoup(response.text,"lxml")
+            for row in soup.select("tr"):
+                if "Dallas County Election Board Meeting Agenda" not in row.get_text(" ",strip=True):
+                    continue
+                dates=re.findall(r"\b\d{1,2}/\d{1,2}/20\d{2}\b",row.get_text(" ",strip=True))
+                meeting=_parse_civic_day(_extract_date(dates[-1])) if dates else None
+                if not meeting or not today-timedelta(days=45)<=meeting<=today+timedelta(days=30):
+                    continue
+                link=next((a for a in row.select('a[href]')
+                           if urlparse(a['href']).path.casefold().endswith('.pdf')),None)
+                if link:
+                    url=urljoin(source["root_url"],link["href"])
+                    if urlparse(url).hostname in {"dallascounty.org","www.dallascounty.org"}:
+                        posted=_parse_civic_day(_extract_date(dates[0])) or meeting
+                        if meeting not in meetings or posted>=meetings[meeting][0]:
+                            meetings[meeting]=(posted,url)
+        except Exception as exc:
+            errors.append({"url":source["root_url"],"error":str(exc)})
+        for meeting,(_,url) in sorted(meetings.items(),reverse=True)[:limit]:
+            try:
+                text,final_url,_=_fetch_text(client,url)
+                agenda=_dallas_election_agenda_text(text)
+                if not agenda:
+                    continue
+                title=f"Dallas County Election Board Agenda - {meeting.isoformat()}"
+                doc,changed=_upsert(db,source,title,final_url,agenda,
+                    metadata={"format":"structured_agenda","source_kind":"dallas_election_board",
+                              "meeting_date":meeting.isoformat()})
+                doc.meeting_date=meeting.isoformat()
+                documents.append(doc.id)
+                if changed:
+                    changed_ids.append(doc.id)
+            except Exception as exc:
+                errors.append({"url":url,"error":str(exc)})
+    db.commit()
+    return {"source_key":source["source_key"],"root_reached":root_reached,
+            "records_enumerated":len(meetings),"document_count":len(documents),
+            "changed_document_ids":changed_ids,"error_count":len(errors),"errors":errors[:20]}
 
 def _collin_meetings(html,base,today):
     soup=BeautifulSoup(html,"lxml")
@@ -619,10 +781,14 @@ def scan_civic_source(db,source_key,limit=50):
         return scan_civicclerk_source(db,source,limit=max(limit,75))
     if source["kind"]=="boardbook":
         return scan_boardbook_source(db,source,limit=limit)
+    if source["kind"]=="wylie_municode":
+        return scan_wylie_municode_source(db,source,limit=limit)
     if source["kind"]=="civicengage_archive":
         return scan_civicengage_archive(db,source,limit=limit)
     if source["kind"]=="dallas_notices":
         return scan_dallas_notices(db,source,limit=limit)
+    if source["kind"]=="dallas_election_board":
+        return scan_dallas_election_board(db,source,limit=limit)
     if source["kind"]=="collin_eagenda":
         return scan_collin_eagenda_source(db,source,limit=limit)
     return scan_html_source(db,source,limit=limit)

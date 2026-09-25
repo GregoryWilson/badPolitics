@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session
 from app.db.base import Base
 import app.models.entities  # noqa: F401
 from app.models.entities import (
-    Bill,BillAction,CivicDocument,CivicDocumentRevision,CivicAgendaItem,CivicFinding,
+    Bill,BillAction,CivicDocument,CivicDocumentRevision,CivicAgendaItem,CivicFinding,DiscoveryCursor,
 )
 from app.services.source_dashboard import dashboard_sources,weekly_source_summary
 
@@ -239,6 +239,13 @@ def test_empty_source_reports_whether_any_records_exist(tmp_path):
             empty=weekly_source_summary(db,"collin_county",today=date(2026,9,23))
             assert empty["item_count"]==0
             assert empty["coverage"]["record_count"]==0
+            db.add(DiscoveryCursor(source_key="civic:collin_commissioners",
+                jurisdiction="TX-local",session=None,cursor_json={"offset":0},
+                cycle=1,status="error",last_error="Private diagnostic",updated_at=datetime(2026,9,23)))
+            db.commit()
+            failed=weekly_source_summary(db,"collin_county",today=date(2026,9,23))
+            assert failed["coverage"]["discovery"][0]["status"]=="error"
+            assert "Private diagnostic" not in str(failed)
             doc=CivicDocument(source_key="collin_commissioners",jurisdiction="TX-local",
                 governing_body="Collin County Commissioners Court",document_type="agenda",
                 title="Older meeting",meeting_date="2026-09-14",

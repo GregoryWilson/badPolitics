@@ -1,10 +1,11 @@
-from datetime import datetime
+from datetime import datetime,timedelta
 from sqlalchemy import select
 
 from app.core.config import settings
-from app.models.entities import DiscoveryCursor, CivicDocument, CivicDocumentRevision
+from app.models.entities import DiscoveryCursor, CivicDocument, CivicDocumentRevision, Bill
 from app.services.congress import CongressClient
-from app.services.ingest import ingest_jurisdiction
+from app.services.ingest import ingest_jurisdiction,_upsert_action
+from app.jurisdictions.base import NormalizedAction
 from app.services.monitor import BILL_TYPES
 from app.jurisdictions import get_adapter
 from app.services.civic_crawler import scan_civic_source
@@ -58,17 +59,60 @@ def _fail_cursor(db,row,exc):
         "cursor":row.cursor_json,
     }
 
+def _capture_recent_federal_actions(db,congress,items):
+    # The list endpoint carries a sourced latest action. Capture it before the
+    # slower per-bill enrichment so the current week appears promptly.
+    week_start=datetime.utcnow().date()-timedelta(days=datetime.utcnow().weekday())
+    slugs={"hr":"house-bill","s":"senate-bill","hjres":"house-joint-resolution",
+           "sjres":"senate-joint-resolution","hconres":"house-concurrent-resolution",
+           "sconres":"senate-concurrent-resolution","hres":"house-resolution",
+           "sres":"senate-resolution"}
+    captured=0
+    for item in items:
+        kind=BILL_TYPES.get((item.get("type") or "").upper())
+        number=item.get("number")
+        action=item.get("latestAction") or {}
+        day=action.get("actionDate")
+        description=action.get("text")
+        if not kind or not number or not description or not day or not week_start.isoformat()<=day:
+            continue
+        public_url=f"https://www.congress.gov/bill/{congress}th-congress/{slugs[kind]}/{number}"
+        bill=db.scalar(select(Bill).where(
+            Bill.jurisdiction=="US",Bill.session_code==str(congress),
+            Bill.bill_type==kind,Bill.bill_number==str(number)))
+        if not bill:
+            bill=Bill(jurisdiction="US",congress=congress,session_code=str(congress),
+                bill_type=kind,bill_number=str(number),title=item.get("title"),
+                latest_action=description,metadata_json={"source_url":public_url},
+                updated_at=datetime.utcnow())
+            db.add(bill);db.flush()
+        else:
+            bill.title=item.get("title") or bill.title
+            bill.latest_action=description
+        _,new=_upsert_action(db,bill,NormalizedAction(date=day,text=description,
+            code=None,source_url=public_url,raw=action))
+        captured+=int(new)
+    db.commit()
+    return captured
+
 def discover_federal_batch(db,congress=None,batch_size=None):
     congress=int(congress or settings.auto_discovery_us_congress)
     batch=max(1,min(int(batch_size or settings.auto_discovery_batch_size),250))
     source_key=f"legis:US:{congress}"
     cursor=_cursor(db,source_key,"US",str(congress))
-    offset=int((cursor.cursor_json or {}).get("offset",0))
+    state=dict(cursor.cursor_json or {})
+    # Older runs encoded the '+' literally, which Congress.gov ignores as a sort
+    # directive. Restart the cursor once with the correctly encoded date sort.
+    if state.get("sort_order")!="updateDate desc":
+        state.update({"offset":0,"sort_order":"updateDate desc"})
+        cursor.cursor_json=state
+    offset=int(state.get("offset",0))
     cursor.status="running"; cursor.last_started_at=datetime.utcnow(); cursor.updated_at=cursor.last_started_at
     db.commit()
     try:
         payload=CongressClient().recently_updated(congress,limit=batch,offset=offset)
         items=payload.get("bills",[])
+        captured_actions=_capture_recent_federal_actions(db,congress,items)
         ingested=[]; failed=[]; skipped=[]
         for item in items:
             number=item.get("number")
@@ -94,6 +138,7 @@ def discover_federal_batch(db,congress=None,batch_size=None):
             "batch_size":batch,
             "source_count":len(items),
             "ingested_count":len(ingested),
+            "weekly_actions_captured":captured_actions,
             "failed_count":len(failed),
             "skipped_count":len(skipped),
             "next_offset":0 if complete else next_offset,

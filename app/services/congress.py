@@ -14,7 +14,7 @@ class CongressClient:
     def actions(self,c,t,n): return self._get(f"/bill/{c}/{t.lower()}/{n}/actions",{"limit":250})
     def cosponsors(self,c,t,n): return self._get(f"/bill/{c}/{t.lower()}/{n}/cosponsors",{"limit":250})
     def amendments(self,c,t,n): return self._get(f"/bill/{c}/{t.lower()}/{n}/amendments",{"limit":250})
-    def recently_updated(self,c,limit=100,offset=0): return self._get(f"/bill/{c}",{"limit":limit,"offset":offset,"sort":"updateDate+desc"})
+    def recently_updated(self,c,limit=100,offset=0): return self._get(f"/bill/{c}",{"limit":limit,"offset":offset,"sort":"updateDate desc"})
     def download_preferred_text(self,v):
         formats=v.get("formats") or []
         preferred=sorted(formats,key=lambda f:{"Formatted XML":0,"Formatted Text":1,"PDF":2}.get(f.get("type",""),9))
