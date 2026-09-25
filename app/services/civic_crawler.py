@@ -3,7 +3,7 @@ import io
 import json
 import re
 from datetime import datetime,date,timedelta
-from urllib.parse import urljoin,urlparse
+from urllib.parse import urljoin,urlparse,parse_qs
 
 import httpx
 from bs4 import BeautifulSoup
@@ -96,6 +96,18 @@ def _candidate_title(soup,fallback):
             return value
     return fallback
 
+def _boardbook_agenda_text(soup):
+    headings=[]
+    for row in soup.select("tr.agenda-item-information"):
+        title=row.select_one(".form-check")
+        if title:
+            value=" ".join(title.get_text(" ",strip=True).split())
+            if value:
+                headings.append(value)
+    if not headings:
+        return None
+    return "\n".join([_candidate_title(soup,"Agenda"),*headings])
+
 def _scan_seeded_pages(db,source,seeds,limit=50,follow_selector=None):
     client=httpx.Client(
         headers={
@@ -124,6 +136,8 @@ def _scan_seeded_pages(db,source,seeds,limit=50,follow_selector=None):
                 response.raise_for_status()
                 soup=BeautifulSoup(response.text,"lxml")
                 title=_candidate_title(soup,title)
+                if source["kind"]=="boardbook" and "/public/agenda/" in urlparse(final_url).path.casefold():
+                    text=_boardbook_agenda_text(soup) or text
             row,changed=_upsert(
                 db,source,title,final_url,text,
                 metadata={
@@ -241,6 +255,71 @@ def scan_dallas_notices(db,source,limit=50):
         db,source,[(source["root_url"],source["governing_body"],0)],
         limit=max(limit,75),follow_selector=follow,
     )
+
+def _collin_meetings(html,base,today):
+    soup=BeautifulSoup(html,"lxml")
+    rows=[]
+    for link in soup.find_all("a",href=True):
+        title=link.get("title","")
+        if not title.startswith("View Agenda for Commissioners Court"):
+            continue
+        try:
+            meeting=datetime.strptime(link.get_text(" ",strip=True),"%B %d, %Y").date()
+        except ValueError:
+            continue
+        if today-timedelta(days=62)<=meeting<=today+timedelta(days=30):
+            url=urljoin(base,link["href"])
+            if urlparse(url).hostname==urlparse(base).hostname:
+                rows.append((meeting,url,"Supplemental" in title))
+    return rows
+
+def _collin_agenda_text(html):
+    soup=BeautifulSoup(html,"lxml")
+    names=[]
+    for link in soup.select("a.ai_link"):
+        name=" ".join(link.get_text(" ",strip=True).split())
+        if name and name not in names:
+            names.append(name)
+    return "\n".join(f"{ordinal}. {name}" for ordinal,name in enumerate(names,1))
+
+def scan_collin_eagenda_source(db,source,limit=50):
+    today=date.today()
+    documents=[];changed_ids=[];errors=[];meetings=[]
+    months=[today,today.replace(day=1)-timedelta(days=1)]
+    with httpx.Client(timeout=25,follow_redirects=True) as client:
+        for month in months:
+            try:
+                response=client.get(source["root_url"],params={"get_month":month.month,"get_year":month.year})
+                response.raise_for_status()
+                meetings.extend(_collin_meetings(response.text,source["root_url"],today))
+            except Exception as exc:
+                errors.append({"url":source["root_url"],"error":str(exc)})
+        seen=set()
+        for meeting,url,supplemental in sorted(meetings,reverse=True):
+            if url in seen or len(documents)>=limit:
+                continue
+            seen.add(url)
+            try:
+                response=client.get(url)
+                response.raise_for_status()
+                text=_collin_agenda_text(response.text)
+                if not text:
+                    continue
+                seq=(parse_qs(urlparse(url).query).get("seq") or [url])[0]
+                title=f"Commissioners Court {'Supplemental ' if supplemental else ''}Agenda - {meeting.isoformat()}"
+                row,changed=_upsert(db,source,title,url,text,
+                    metadata={"format":"structured_agenda","source_kind":"collin_eagenda",
+                              "meeting_date":meeting.isoformat()},external_id=f"agenda:{seq}")
+                row.meeting_date=meeting.isoformat()
+                documents.append(row.id)
+                if changed:
+                    changed_ids.append(row.id)
+            except Exception as exc:
+                errors.append({"url":url,"error":str(exc)})
+    db.commit()
+    return {"source_key":source["source_key"],"root_reached":bool(meetings),
+            "records_enumerated":len(seen),"document_count":len(documents),
+            "changed_document_ids":changed_ids,"error_count":len(errors),"errors":errors[:20]}
 
 def _arcgis_text(attrs):
     preferred=[
@@ -544,6 +623,8 @@ def scan_civic_source(db,source_key,limit=50):
         return scan_civicengage_archive(db,source,limit=limit)
     if source["kind"]=="dallas_notices":
         return scan_dallas_notices(db,source,limit=limit)
+    if source["kind"]=="collin_eagenda":
+        return scan_collin_eagenda_source(db,source,limit=limit)
     return scan_html_source(db,source,limit=limit)
 
 def scan_all_civic_sources(db,limit_per_source=50):

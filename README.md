@@ -337,11 +337,14 @@ Revision-change findings record differences between captured official-source rev
 - selectable Sachse, Wylie, Wylie ISD, Garland ISD, Dallas County, Collin County, Texas Legislature, and U.S. Congress views
 - combines multiple underlying feeds into one institution-level synopsis
 - civic meeting documents are broken into agenda/action items when structured agenda items are available
+- BoardBook agenda rows are read as numbered items, including Roman numbered sections, without attachment lists or page navigation
 - activity is grouped into deterministic logical categories such as development/land use, contracts/procurement, budget/finance, taxes/bonds/debt, school facilities/boundaries, policies/rules, hearings, votes/actions, property/land, and elections/governance
 - legislative activity is grouped into deterministic subject categories and uses dated legislative actions for the current calendar week
 - every summary item retains a drill-down record ID and official source URL
 - weekly civic items omit routine meeting procedure and crawler index pages, and merge matching agenda subjects across overlapping records before applying the item limit
-- undated ArcGIS projects appear only when their captured content changed during the week; repeated crawls alone do not count as activity
+- Wylie development projects require a source dated event in the current week; a newly imported historical project is not counted as current activity
+- Collin County agendas are read from the Commissioners Court eAgenda index and their agenda items are summarized for the meeting week
+- empty weekly views report captured record count and latest dated record so a coverage gap can be distinguished from no current activity
 - administrative legislative actions do not displace substantive actions in the weekly synopsis
 - lettered agenda section headings organize substantive items without becoming summary cards; meeting addresses, contact details, and routine procedure are omitted
 - the weekly layer is intentionally deterministic/source-backed so future research and conversational LLM controls can sit on top without deciding the underlying facts

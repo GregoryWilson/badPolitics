@@ -26,15 +26,34 @@ const api=async(url,opts={})=>{
 };
 const status=(msg,cls="")=>{$("statusLine").className="status-line "+cls;$("statusLine").textContent=msg||""};
 
+let weeklyRequestSequence=0;
+let weeklyController=null;
 
 async function loadWeeklyDashboard(sourceId=state.selectedWeeklySource){
   state.selectedWeeklySource=sourceId||"sachse";
+  const source=state.selectedWeeklySource;
+  const request=++weeklyRequestSequence;
+  weeklyController?.abort();
+  const controller=new AbortController();
+  weeklyController=controller;
+  state.weekly=null;
+  state.weeklyLoading=true;
+  state.weeklyError="";
+  renderWeeklyDashboard();
   try{
     if(!state.weeklySources.length)state.weeklySources=await api("/dashboard/sources");
-    state.weekly=await api("/dashboard/weekly/"+encodeURIComponent(state.selectedWeeklySource));
+    if(request!==weeklyRequestSequence)return;
+    renderWeeklyDashboard();
+    const result=await api("/dashboard/weekly/"+encodeURIComponent(source)+"?limit=50",{signal:controller.signal});
+    if(request!==weeklyRequestSequence)return;
+    state.weekly=result;
+    state.weeklyLoading=false;
     renderWeeklyDashboard();
   }catch(e){
-    $("weeklyCategories").innerHTML='<div class="notice">Unable to load weekly source summary: '+esc(e.message)+'</div>';
+    if(request!==weeklyRequestSequence||e.name==="AbortError")return;
+    state.weeklyLoading=false;
+    state.weeklyError=e.message;
+    renderWeeklyDashboard();
   }
 }
 function showWeeklyDashboard(){
@@ -50,21 +69,24 @@ function showWeeklyDashboard(){
 }
 function renderWeeklyDashboard(){
   const result=state.weekly||{source:{label:""},window:{},categories:[]};
+  const selected=state.weeklySources.find(source=>source.id===state.selectedWeeklySource);
   $("weeklyView").hidden=false;
-  $("weeklyTitle").textContent="What's happening this week in "+(result.source?.label||"");
+  $("weeklyTitle").textContent="What's happening this week in "+(selected?.label||result.source?.label||state.selectedWeeklySource);
   $("weeklyWindow").textContent=(result.window?.start||"")+" through "+(result.window?.end||"");
   $("weeklySources").innerHTML=state.weeklySources.map(source=>
-    '<button class="weekly-source '+(source.id===state.selectedWeeklySource?'active':'')+'" data-weekly-source="'+esc(source.id)+'">'+esc(source.label)+'</button>'
+    '<button class="weekly-source '+(source.id===state.selectedWeeklySource?'active':'')+'" aria-pressed="'+(source.id===state.selectedWeeklySource)+'" data-weekly-source="'+esc(source.id)+'">'+esc(source.label)+'</button>'
   ).join("");
   document.querySelectorAll(".weekly-source[data-weekly-source]").forEach(button=>{
     button.onclick=()=>loadWeeklyDashboard(button.dataset.weeklySource);
   });
-  $("weeklyMetrics").innerHTML=[
+  $("weeklyMetrics").innerHTML=state.weeklyLoading||state.weeklyError?"": [
     ["Items this week",result.item_count||0],
     ["Categories",result.category_count||0],
     ["Institution",result.source?.label||""],
   ].map(([label,value])=>'<div class="metric"><div class="label">'+esc(label)+'</div><div class="value">'+esc(value)+'</div></div>').join("");
-  $("weeklyCategories").innerHTML=(result.categories||[]).length?(result.categories||[]).map(category=>
+  $("weeklyCategories").innerHTML=state.weeklyLoading?'<div class="notice">Loading '+esc(selected?.label||state.selectedWeeklySource)+' activity…</div>':
+    state.weeklyError?'<div class="notice">Unable to load weekly source summary: '+esc(state.weeklyError)+'</div>':
+    (result.categories||[]).length?(result.categories||[]).map(category=>
     '<section class="weekly-category">'+
       '<div class="weekly-category-header"><h3>'+esc(category.label)+'</h3><span class="badge">'+esc(category.count)+'</span></div>'+
       groupWeeklyItems(category.items).map(group=>
@@ -84,7 +106,11 @@ function renderWeeklyDashboard(){
         ).join("")
       ).join("")+
     '</section>'
-  ).join(""):'<div class="notice">No source-backed activity for this institution has been captured for the current week yet.</div>';
+  ).join(""):'<div class="notice">'+(result.coverage?.record_count?
+    'No dated, substantive activity for this institution was captured this week. '+
+    esc(result.coverage.record_count)+' source records are available.'+
+    (result.coverage.latest_dated_record?' Latest dated record: '+esc(result.coverage.latest_dated_record)+'.':''):
+    'No source records have been captured for this institution yet. Check discovery status.')+'</div>';
   document.querySelectorAll(".weekly-item").forEach(card=>{
     card.querySelector(".weekly-open").onclick=()=>openWeeklyItem(card.dataset.weeklyKind,Number(card.dataset.weeklyId),card.dataset.weeklyAgendaId);
   });

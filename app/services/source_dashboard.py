@@ -1,11 +1,11 @@
 import re
 from difflib import SequenceMatcher
 from collections import defaultdict
-from datetime import datetime,timedelta,date
-from sqlalchemy import select
+from datetime import datetime,timedelta,date,timezone
+from sqlalchemy import select,func
 
 from app.models.entities import Bill,BillAction,BillVersion,CivicDocument,CivicDocumentRevision,CivicFinding,CivicAgendaItem
-from app.services.civic_analysis import ACTION_RE,ITEM_RE,agenda_section_label
+from app.services.civic_analysis import ACTION_RE,ITEM_RE,COMPILED_SIGNALS,agenda_section_label
 from app.services.civic_sources import CIVIC_SOURCES
 
 SOURCE_GROUPS=[
@@ -74,7 +74,7 @@ ROUTINE_BILL_ACTION=re.compile(
     re.I,
 )
 SUBSTANTIVE_HINT=re.compile(
-    r"\b(?:ordinance|contract|budget|tax|zoning|bond|development|grant|"
+    r"\b(?:ordinance|contract|agreement|resolution|budget|tax|zoning|bond|development|grant|"
     r"policy|school|construction|property|project|hearing|election)\b",re.I,
 )
 SUBSTANTIVE_CATEGORIES=set(CATEGORY_LABELS)-{"other_civic","vote_action","public_hearing"}
@@ -188,13 +188,16 @@ def _civic_keys(group):
         selected.update(key for key in known if key.startswith(prefix))
     return sorted(selected)
 
-def _civic_category(doc,findings):
+def _civic_category(doc,findings,item_text=None):
     priority=[
         "zoning_development","procurement_contract","budget_finance","bond_tax_debt",
         "school_facility_boundary","property_land","policy_rule","election_governance",
         "public_hearing","vote_action",
     ]
     found={f.category for f in findings}
+    if item_text:
+        found.update(category for category,patterns in COMPILED_SIGNALS
+                     if any(pattern.search(item_text) for pattern in patterns))
     for key in priority:
         if key in found:
             return key
@@ -208,61 +211,108 @@ def _compact(text,limit=380):
     value=" ".join((text or "").split())
     return value if len(value)<=limit else value[:limit-1].rstrip()+"…"
 
+ARCGIS_EVENT_FIELDS=("PZDate","CouncilDate","CityCouncilDate","CCDate",
+                     "SubmissionDate","SubmittalDate","ApprovalDate")
+
+def _arcgis_event_date(doc,start,end):
+    attrs=(doc.metadata_json or {}).get("attributes") or {}
+    dated=[]
+    for field in ARCGIS_EVENT_FIELDS:
+        value=attrs.get(field)
+        if isinstance(value,(int,float)):
+            try:
+                day=datetime.fromtimestamp(value/1000 if value>10**11 else value,
+                                           timezone.utc).date()
+            except (OverflowError,OSError,ValueError):
+                continue
+        else:
+            day=_parse_date(value)
+        if day and start<=day<=end:
+            dated.append((day,field))
+    return max(dated) if dated else None
+
+def _arcgis_synopsis(doc):
+    attrs=(doc.metadata_json or {}).get("attributes") or {}
+    parts=[]
+    for field,label in (("ProjectDescription",None),("Description",None),
+                        ("Explanation",None),("ProjectType","Type"),
+                        ("DevelopmentType","Development"),("Status","Status"),
+                        ("PZStatus","P&Z"),("CouncilStatus","Council")):
+        value=attrs.get(field)
+        if value not in (None,"","Null","null"):
+            parts.append(f"{label}: {value}" if label else str(value))
+    return _compact(" · ".join(parts),500)
+
+def _source_coverage(db,group,start,end):
+    if group["kind"]=="civic":
+        keys=_civic_keys(group)
+        count,last_seen,last_dated=db.execute(select(
+            func.count(CivicDocument.id),func.max(CivicDocument.last_seen_at),
+            func.max(CivicDocument.meeting_date),
+        ).where(CivicDocument.source_key.in_(keys))).one()
+    else:
+        count,last_seen=db.execute(select(func.count(Bill.id),func.max(Bill.updated_at))
+            .where(Bill.jurisdiction==group["jurisdiction"])).one()
+        last_dated=db.scalar(select(func.max(BillAction.action_date)).join(Bill)
+            .where(Bill.jurisdiction==group["jurisdiction"]))
+    return {"record_count":count,"last_captured_at":last_seen.isoformat() if last_seen else None,
+            "latest_dated_record":str(last_dated)[:10] if last_dated else None}
+
 def _civic_week(db,group,start,end,limit):
     keys=_civic_keys(group)
     if not keys:
         return []
-    rows=db.scalars(
-        select(CivicDocument)
-        .where(CivicDocument.source_key.in_(keys))
-        .order_by(CivicDocument.meeting_date.desc(),CivicDocument.last_seen_at.desc())
-        .limit(max(limit*10,500))
-    ).all()
-    items=[]
+    feature_keys=[key for key in keys if key=="wylie_development_projects"]
+    dated_keys=[key for key in keys if key not in feature_keys]
+    rows=[]
+    if dated_keys:
+        rows.extend(db.scalars(select(CivicDocument).where(
+            CivicDocument.source_key.in_(dated_keys),
+            CivicDocument.meeting_date>=start.isoformat(),
+            CivicDocument.meeting_date<(end+timedelta(days=1)).isoformat(),
+        ).order_by(CivicDocument.meeting_date.desc(),CivicDocument.id.desc())
+          .limit(max(limit*10,500))).all())
+    if feature_keys:
+        rows.extend(db.scalars(select(CivicDocument)
+            .where(CivicDocument.source_key.in_(feature_keys))
+            .order_by(CivicDocument.id.desc()).limit(2000)).all())
+    dated=[]
     for doc in rows:
-        # Crawler seed/index pages contain navigation and often a date from an
-        # unrelated link. They are not themselves a dated civic decision.
         if (doc.metadata_json or {}).get("crawl_depth")==0:
             continue
-        revision=db.scalar(
-            select(CivicDocumentRevision)
-            .where(CivicDocumentRevision.civic_document_id==doc.id)
-            .order_by(CivicDocumentRevision.observed_at.desc(),CivicDocumentRevision.id.desc())
-        )
-        meeting=_parse_date(doc.meeting_date)
-        is_feature=(doc.metadata_json or {}).get("record_type")=="arcgis_feature"
-        changed=(revision.observed_at.date() if revision and revision.observed_at else
-                 doc.first_seen_at.date() if doc.first_seen_at else None)
-        if is_feature and changed and start<=changed<=end:
-            event_date=changed
-            date_basis="updated_this_week"
-        elif is_feature:
-            continue
-        elif meeting:
-            if not (start<=meeting<=end):
-                continue
-            event_date=meeting
-            date_basis="meeting_date"
+        if doc.source_key in feature_keys:
+            source_event=_arcgis_event_date(doc,start,end)
+            if source_event:
+                dated.append((doc,source_event[0],"source_event_date",source_event[1]))
         else:
-            continue
-        revision_id=revision.id if revision else None
-        findings=db.scalars(
-            select(CivicFinding)
-            .where(
-                CivicFinding.civic_document_id==doc.id,
-                CivicFinding.revision_id==revision_id,
-            )
-            .order_by(CivicFinding.id)
-        ).all()
-        agenda=db.scalars(
-            select(CivicAgendaItem)
-            .where(
-                CivicAgendaItem.civic_document_id==doc.id,
-                CivicAgendaItem.revision_id==revision_id,
-            )
-            .order_by(CivicAgendaItem.ordinal)
-            .limit(100)
-        ).all()
+            meeting=_parse_date(doc.meeting_date)
+            if meeting and start<=meeting<=end:
+                dated.append((doc,meeting,"meeting_date",None))
+    if not dated:
+        return []
+    ids=[doc.id for doc,_,_,_ in dated]
+    revisions={}
+    for rev in db.scalars(select(CivicDocumentRevision)
+            .where(CivicDocumentRevision.civic_document_id.in_(ids))
+            .order_by(CivicDocumentRevision.civic_document_id,
+                      CivicDocumentRevision.observed_at.desc(),CivicDocumentRevision.id.desc())):
+        revisions.setdefault(rev.civic_document_id,rev)
+    revision_ids=[rev.id for rev in revisions.values()]
+    findings_by_doc=defaultdict(list)
+    agenda_by_doc=defaultdict(list)
+    if revision_ids:
+        for finding in db.scalars(select(CivicFinding).where(
+                CivicFinding.revision_id.in_(revision_ids)).order_by(CivicFinding.id)):
+            findings_by_doc[finding.civic_document_id].append(finding)
+        for agenda_item in db.scalars(select(CivicAgendaItem).where(
+                CivicAgendaItem.revision_id.in_(revision_ids))
+                .order_by(CivicAgendaItem.civic_document_id,CivicAgendaItem.ordinal)):
+            agenda_by_doc[agenda_item.civic_document_id].append(agenda_item)
+    items=[]
+    for doc,event_date,date_basis,event_field in dated:
+        revision=revisions.get(doc.id)
+        findings=findings_by_doc[doc.id]
+        agenda=agenda_by_doc[doc.id][:100]
 
         if agenda:
             section=None
@@ -281,7 +331,7 @@ def _civic_week(db,group,start,end,limit):
                     _routine_agenda(item_title)):
                     continue
                 linked=[f for f in findings if f.agenda_item_id==agenda_item.id]
-                category=_civic_category(doc,linked)
+                category=_civic_category(doc,linked,agenda_item.text)
                 # A stray numbered line from a scraped page is not an agenda issue.
                 if (category=="other_civic" and
                     (len(_normal(agenda_item.text))<35 or
@@ -313,6 +363,8 @@ def _civic_week(db,group,start,end,limit):
                 })
         else:
             category=_civic_category(doc,findings)
+            if event_field and category=="other_civic":
+                category="zoning_development"
             # An unparsed packet/agenda is a container, not a second issue.
             if (category not in SUBSTANTIVE_CATEGORIES or
                 _routine_agenda(doc.title) or _contact_heading(doc.title,doc.text or "") or
@@ -322,7 +374,8 @@ def _civic_week(db,group,start,end,limit):
             matched=[f for f in findings if f.category==category]
             action_findings=[f for f in findings if f.category=="vote_action"]
             hearing=any(f.category=="public_hearing" for f in findings)
-            synopsis=_compact(matched[0].evidence,500) if matched else _compact(doc.text,500)
+            synopsis=(_arcgis_synopsis(doc) if event_field else
+                      _compact(matched[0].evidence,500) if matched else _compact(doc.text,500))
             items.append({
                 "kind":"civic",
                 "record_id":doc.id,
@@ -335,8 +388,9 @@ def _civic_week(db,group,start,end,limit):
                 "parent_title":None,
                 "date":event_date.isoformat(),
                 "date_basis":date_basis,
-                "status":(("official action recorded" if doc.document_type=="minutes" else "proposed action")
-                          if action_findings else ("public hearing" if hearing else doc.document_type.replace("_"," "))),
+                "status":(event_field.replace("Date"," date") if event_field else
+                           ("official action recorded" if doc.document_type=="minutes" else "proposed action")
+                           if action_findings else ("public hearing" if hearing else doc.document_type.replace("_"," "))),
                 "synopsis":synopsis or "Official source record captured for this week.",
                 "source_url":doc.source_url,
                 "governing_body":doc.governing_body,
@@ -369,33 +423,31 @@ def _action_status(text):
     return "legislative action"
 
 def _legislative_week(db,group,start,end,limit):
-    bills=db.scalars(
-        select(Bill)
-        .where(Bill.jurisdiction==group["jurisdiction"])
-        .order_by(Bill.updated_at.desc(),Bill.id.desc())
-        .limit(max(limit*10,500))
-    ).all()
+    rows=db.execute(select(BillAction,Bill).join(Bill,BillAction.bill_id==Bill.id)
+        .where(Bill.jurisdiction==group["jurisdiction"],
+               BillAction.action_date>=start.isoformat(),
+               BillAction.action_date<(end+timedelta(days=1)).isoformat())
+        .order_by(BillAction.action_date.desc(),BillAction.id.desc())
+        .limit(max(limit*20,3000))).all()
+    weekly=defaultdict(list)
+    bills={}
+    for action,bill in rows:
+        if not ROUTINE_BILL_ACTION.search(action.text or ""):
+            weekly[bill.id].append(action)
+            bills[bill.id]=bill
+    selected=list(weekly)[:limit]
+    versions={}
+    if selected:
+        for version in db.scalars(select(BillVersion).where(BillVersion.bill_id.in_(selected))
+                .order_by(BillVersion.id.desc())):
+            versions.setdefault(version.bill_id,version)
     items=[]
-    for bill in bills:
-        actions=db.scalars(
-            select(BillAction)
-            .where(BillAction.bill_id==bill.id)
-            .order_by(BillAction.action_date.desc(),BillAction.id.desc())
-        ).all()
-        weekly=[a for a in actions if (_parse_date(a.action_date) and start<=_parse_date(a.action_date)<=end)
-                and not ROUTINE_BILL_ACTION.search(a.text or "")]
-        if not weekly:
-            continue
-        action=weekly[0]
+    for bill_id in selected:
+        bill=bills[bill_id]
+        action=weekly[bill_id][0]
         category=_bill_topic(bill)
-        source_url=action.source_url
-        if not source_url:
-            version=db.scalar(
-                select(BillVersion)
-                .where(BillVersion.bill_id==bill.id)
-                .order_by(BillVersion.id.desc())
-            )
-            source_url=version.source_url if version else None
+        version=versions.get(bill_id)
+        source_url=action.source_url or (version.source_url if version else None)
         items.append({
             "kind":"bill",
             "record_id":bill.id,
@@ -410,10 +462,8 @@ def _legislative_week(db,group,start,end,limit):
             "synopsis":_compact(action.text or bill.latest_action or bill.title),
             "source_url":source_url,
             "session":bill.session_code or str(bill.congress),
-            "action_count_this_week":len(weekly),
+            "action_count_this_week":len(weekly[bill_id]),
         })
-        if len(items)>=limit:
-            break
     return items
 
 def dashboard_sources(db=None):
@@ -432,6 +482,7 @@ def weekly_source_summary(db,group_id,limit=150,today=None):
         items=_civic_week(db,group,start,end,limit)
     else:
         items=_legislative_week(db,group,start,end,limit)
+    coverage=_source_coverage(db,group,start,end)
     categories=defaultdict(list)
     for item in items:
         categories[item["category"]].append(item)
@@ -450,6 +501,7 @@ def weekly_source_summary(db,group_id,limit=150,today=None):
         "window":{"start":start.isoformat(),"end":end.isoformat(),"label":"This week"},
         "item_count":len(items),
         "category_count":len(category_rows),
+        "coverage":coverage,
         "categories":category_rows,
         "interpretation_note":"This dashboard is a source-backed activity synopsis. Categories describe documented subject matter or process; they do not rate political importance, desirability, motive, or wrongdoing.",
     }

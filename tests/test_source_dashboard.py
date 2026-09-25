@@ -1,5 +1,5 @@
-from datetime import date,datetime
-from sqlalchemy import create_engine
+from datetime import date,datetime,timezone
+from sqlalchemy import create_engine,event
 from sqlalchemy.orm import Session
 
 from app.db.base import Base
@@ -17,6 +17,40 @@ def build_db(tmp_path):
 def test_dashboard_source_catalog_groups_institutions():
     ids={row["id"] for row in dashboard_sources()}
     assert {"sachse","wylie","wylie_isd","gisd","dallas_county","collin_county","texas","federal"} <= ids
+
+def test_civic_summary_queries_are_bounded_across_many_documents(tmp_path):
+    engine=build_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            for number in range(35):
+                doc=CivicDocument(
+                    source_key="gisd_board",jurisdiction="TX-local",
+                    governing_body="Garland ISD Board of Trustees",document_type="agenda",
+                    title=f"Board agenda {number}",meeting_date="2026-09-22",
+                    source_url=f"https://example.test/gisd/{number}",external_id=str(number),
+                    text="1. Approve construction contract",sha256=str(number),metadata_json={},
+                    first_seen_at=datetime(2026,9,22),last_seen_at=datetime(2026,9,22))
+                db.add(doc);db.flush()
+                rev=CivicDocumentRevision(civic_document_id=doc.id,sha256=str(number),
+                    text=doc.text,metadata_json={},observed_at=datetime(2026,9,22))
+                db.add(rev);db.flush()
+                db.add(CivicAgendaItem(civic_document_id=doc.id,revision_id=rev.id,
+                    ordinal=1,item_number="1",heading=f"Approve construction contract {number}",
+                    text=f"1. Approve construction contract {number}",
+                    evidence_hash=str(number),metadata_json={}))
+            db.commit()
+            queries=[]
+            def count_queries(conn,cursor,statement,parameters,context,executemany):
+                queries.append(statement)
+            event.listen(engine,"before_cursor_execute",count_queries)
+            try:
+                result=weekly_source_summary(db,"gisd",today=date(2026,9,23))
+            finally:
+                event.remove(engine,"before_cursor_execute",count_queries)
+            assert result["item_count"]==35
+            assert len(queries)<=7
+    finally:
+        engine.dispose()
 
 def test_gisd_weekly_summary_breaks_agenda_into_logical_items(tmp_path):
     engine=build_db(tmp_path)
@@ -182,7 +216,7 @@ def test_legislative_week_ignores_admin_action_but_keeps_substantive_action(tmp_
         with Session(engine) as db:
             bill=Bill(jurisdiction="US",congress=119,session_code="119",bill_type="hr",
                       bill_number="42",title="School funding",metadata_json={},
-                      updated_at=datetime(2026,9,23,9))
+                      updated_at=datetime(2026,1,1,9))
             db.add(bill);db.flush()
             for day,text in [(22,"Referred to the Committee on Education."),
                              (23,"Cosponsors added to the bill.")]:
@@ -195,6 +229,27 @@ def test_legislative_week_ignores_admin_action_but_keeps_substantive_action(tmp_
         item=result["categories"][0]["items"][0]
         assert item["date"]=="2026-09-22"
         assert item["action_count_this_week"]==1
+    finally:
+        engine.dispose()
+
+def test_empty_source_reports_whether_any_records_exist(tmp_path):
+    engine=build_db(tmp_path)
+    try:
+        with Session(engine) as db:
+            empty=weekly_source_summary(db,"collin_county",today=date(2026,9,23))
+            assert empty["item_count"]==0
+            assert empty["coverage"]["record_count"]==0
+            doc=CivicDocument(source_key="collin_commissioners",jurisdiction="TX-local",
+                governing_body="Collin County Commissioners Court",document_type="agenda",
+                title="Older meeting",meeting_date="2026-09-14",
+                source_url="https://example.test/old",external_id="old",text="Older agenda",
+                sha256="old",metadata_json={},first_seen_at=datetime(2026,9,15),
+                last_seen_at=datetime(2026,9,23))
+            db.add(doc);db.commit()
+            older=weekly_source_summary(db,"collin_county",today=date(2026,9,23))
+            assert older["item_count"]==0
+            assert older["coverage"]["record_count"]==1
+            assert older["coverage"]["latest_dated_record"]=="2026-09-14"
     finally:
         engine.dispose()
 
@@ -255,18 +310,21 @@ E. Adjournment"""
     finally:
         engine.dispose()
 
-def test_arcgis_feature_needs_change_this_week_not_just_a_recrawl(tmp_path):
+def test_arcgis_feature_needs_a_dated_source_event_not_just_initial_import(tmp_path):
     engine=build_db(tmp_path)
     try:
         with Session(engine) as db:
-            for label,observed in [("Old project",datetime(2026,9,1)),
-                                   ("Updated project",datetime(2026,9,22))]:
+            for label,source_day in [("Old project",datetime(2022,9,1)),
+                                     ("Current project",datetime(2026,9,22))]:
+                observed=datetime(2026,9,23)
                 doc=CivicDocument(source_key="wylie_development_projects",
                     jurisdiction="TX-local",governing_body="City of Wylie",
                     document_type="web_record",title=label,meeting_date=None,
                     source_url="https://example.test/feature",external_id=label,
                     text="Zoning project status updated",sha256=label,
-                    metadata_json={"record_type":"arcgis_feature"},
+                    metadata_json={"record_type":"arcgis_feature","attributes":{
+                            "PZDate":int(source_day.replace(tzinfo=timezone.utc).timestamp()*1000),
+                        "ProjectType":"Preliminary plat","Status":"Under review"}},
                     first_seen_at=observed,last_seen_at=datetime(2026,9,23))
                 db.add(doc);db.flush()
                 revision=CivicDocumentRevision(civic_document_id=doc.id,sha256=label,
@@ -280,6 +338,10 @@ def test_arcgis_feature_needs_change_this_week_not_just_a_recrawl(tmp_path):
             db.commit()
             result=weekly_source_summary(db,"wylie",today=date(2026,9,23))
         assert result["item_count"]==1
-        assert result["categories"][0]["items"][0]["title"]=="Updated project"
+        item=result["categories"][0]["items"][0]
+        assert item["title"]=="Current project"
+        assert item["date"]=="2026-09-22"
+        assert item["date_basis"]=="source_event_date"
+        assert "Shape Length" not in item["synopsis"]
     finally:
         engine.dispose()
