@@ -19,6 +19,7 @@ BARE_NUMBERED_ACTION_RE=re.compile(
 )
 SECTION_RE=re.compile(
     r"(?:consent agenda|regular agenda|(?:public )?hearings?|(?:new|old|unfinished) business|"
+    r"election board business|"
     r"(?:work|executive|closed) session|action resulting from executive (?:action|session)|"
     r"(?:individual|general) consideration|(?:discussion|action|information) items?)",
     re.I,

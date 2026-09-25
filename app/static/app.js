@@ -106,7 +106,11 @@ function renderWeeklyDashboard(){
         ).join("")
       ).join("")+
     '</section>'
-  ).join(""):'<div class="notice">'+(result.coverage?.record_count?
+  ).join(""):'<div class="notice">'+(result.coverage?.discovery?.some(row=>row.status==="error")?
+    'Source discovery is reporting an error. Check Discovery status for this institution. ':"")+
+    (result.coverage?.discovery?.some(row=>row.status==="running")?
+    'A source scan is still running. ':"")+
+    (result.coverage?.record_count?
     'No dated, substantive activity for this institution was captured this week. '+
     esc(result.coverage.record_count)+' source records are available.'+
     (result.coverage.latest_dated_record?' Latest dated record: '+esc(result.coverage.latest_dated_record)+'.':''):

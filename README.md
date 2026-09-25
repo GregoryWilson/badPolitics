@@ -343,6 +343,10 @@ Revision-change findings record differences between captured official-source rev
 - every summary item retains a drill-down record ID and official source URL
 - weekly civic items omit routine meeting procedure and crawler index pages, and merge matching agenda subjects across overlapping records before applying the item limit
 - Wylie development projects require a source dated event in the current week; a newly imported historical project is not counted as current activity
+- Wylie City Council agendas are read from the official Municode meeting list; substantive agenda items are grouped by section
+- Garland and Wylie ISD BoardBook scans fetch recent agendas directly, without recrawling hundreds of historical meetings
+- Dallas County Election Board agendas supplement Commissioners Court notices; attached address lists are excluded from the weekly synopsis
+- Federal discovery orders Congress.gov results by update date and records dated latest actions before full bill enrichment
 - Collin County agendas are read from the Commissioners Court eAgenda index and their agenda items are summarized for the meeting week
 - empty weekly views report captured record count and latest dated record so a coverage gap can be distinguished from no current activity
 - administrative legislative actions do not displace substantive actions in the weekly synopsis

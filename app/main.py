@@ -564,14 +564,17 @@ def _run_source_job(kind,value=None):
         db.close()
 
 def _run_auto_discovery_background():
+    priority={"wylie_city_council":0,"gisd_board":1,"dallas_election_board_notices":2,
+              "collin_commissioners":3,"wylie_isd_board":4}
     jobs=[
-        *[("civic",source["source_key"]) for source in CIVIC_SOURCES],
+        ("federal",None),
+        *[("civic",source["source_key"]) for source in sorted(
+            CIVIC_SOURCES,key=lambda row:priority.get(row["source_key"],10))],
         *[
             ("texas",session.strip())
             for session in settings.auto_discovery_tx_sessions.split(",")
             if session.strip()
         ],
-        ("federal",None),
     ]
     results=[]
     max_workers=max(1,min(6,len(jobs)))
